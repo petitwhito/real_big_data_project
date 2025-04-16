@@ -1,0 +1,5 @@
+Create etl and dashboard docker images in their directories (make all does it)
+
+Update /home/ricou/ in docker-compose.yml (in current directory).
+
+Look at Makefiles for more details on how to run the pipeline.

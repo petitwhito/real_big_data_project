@@ -1,0 +1,28 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+psycopg2-binary = "*"
+sqlalchemy = "*"
+sqlalchemy-timescaledb = "*"
+numpy = "*"
+pandas = "*"
+openpyxl = "*"
+bs4 = "*"
+scikit-learn = "*"
+plotly = "*"
+kaleido = "*"
+dash = "*"
+dash-bootstrap-components = "*"
+dash-ag-grid = "*"
+dash_daq = "*"
+gunicorn = "*"
+
+[dev-packages]
+pytest = ">=5.2,<6.0"
+
+[requires]
+python_version = "3.12"
+

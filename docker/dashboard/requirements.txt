@@ -1,0 +1,14 @@
+psycopg2-binary
+sqlalchemy
+sqlalchemy-timescaledb
+numpy
+pandas
+plotly
+kaleido
+dash
+dash-bootstrap-components
+dash-ag-grid
+dash_daq
+dash_extensions
+gunicorn
+redis

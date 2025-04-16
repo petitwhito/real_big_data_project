@@ -1,0 +1,43 @@
+networks:
+  boursenet:
+    driver: bridge
+
+services:
+  db:
+    image: reg.undercloud.cri.epita.fr/docker/timescale/timescaledb/timescale/timescaledb:latest-pg16
+    container_name: db
+    command: postgres -c shared_preload_libraries=timescaledb
+      #command:["sh", "-c", "chmod -R 777 /var/lib/postgresql/data/timescaledb &&  postgres -c shared_preload_libraries=timescaledb"]
+    ports:
+      - "5432:5432"
+    networks:
+      - boursenet
+    environment:
+      - PGDATA=/var/lib/postgresql/data/timescaledb
+      - POSTGRES_DB=bourse
+      - POSTGRES_USER=ricou
+      - POSTGRES_PASSWORD=monmdp
+    volumes:
+      - ./timescaledb_data:/var/lib/postgresql/data/timescaledb
+    healthcheck:
+        test: ["CMD-SHELL", "pg_isready -U ricou bourse"]
+        interval: 10s
+        timeout: 5s
+        retries: 5
+
+  etl:
+    image: my_etl
+    container_name: etl
+    depends_on:
+      - db
+    networks:
+      - boursenet
+    volumes:
+      - /mnt/c/Users/leolo/OneDrive/Bureau/temp_big_data/data:/home/bourse/data/
+
+  dashboard:
+    image: my_dashboard
+    networks:
+      - boursenet
+    ports:
+      - "8050:8050"
