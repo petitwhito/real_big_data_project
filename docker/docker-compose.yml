@@ -2,12 +2,15 @@ networks:
   boursenet:
     driver: bridge
 
+# Add this section to create a named volume
+volumes:
+  timescaledb_data:
+
 services:
   db:
-    image: reg.undercloud.cri.epita.fr/docker/timescale/timescaledb/timescale/timescaledb:latest-pg16
+    image: reg.undercloud.cri.epita.fr/docker/timescale/timescaledb:latest-pg16
     container_name: db
     command: postgres -c shared_preload_libraries=timescaledb
-      #command:["sh", "-c", "chmod -R 777 /var/lib/postgresql/data/timescaledb &&  postgres -c shared_preload_libraries=timescaledb"]
     ports:
       - "5432:5432"
     networks:
@@ -18,18 +21,20 @@ services:
       - POSTGRES_USER=ricou
       - POSTGRES_PASSWORD=monmdp
     volumes:
-      - ./timescaledb_data:/var/lib/postgresql/data/timescaledb
+      # Use a named volume instead of a host-mounted directory
+      - timescaledb_data:/var/lib/postgresql/data/timescaledb
     healthcheck:
-        test: ["CMD-SHELL", "pg_isready -U ricou bourse"]
-        interval: 10s
-        timeout: 5s
-        retries: 5
+      test: ["CMD-SHELL", "pg_isready -U ricou -d bourse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   etl:
     image: my_etl
     container_name: etl
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     networks:
       - boursenet
     volumes:
@@ -37,6 +42,10 @@ services:
 
   dashboard:
     image: my_dashboard
+    container_name: dashboard
+    depends_on:
+      db:
+        condition: service_healthy
     networks:
       - boursenet
     ports:
