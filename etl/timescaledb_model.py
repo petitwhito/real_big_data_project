@@ -400,8 +400,13 @@ class TimescaleStockMarketModel:
     # system methods
 
     def commit(self):
-        if not self.__squash:
-            self.connection.commit()
+        """Commit the current transaction"""
+        try:
+            if self.connection:
+                self.connection.commit()
+        except Exception as e:
+            self.logger.error(f"Exception with commit: {e}")
+            raise
 
             
     # getters
