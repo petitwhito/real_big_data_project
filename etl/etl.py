@@ -8,6 +8,8 @@ import os
 import sys
 import traceback
 import time
+import bz2  # Ajout pour gérer les fichiers .bz2
+from io import BytesIO  # Ajout pour décompression en mémoire
 
 # Configuration de base
 HOME = "/home/bourse/data/"  # Répertoires boursorama et euronext attendus
@@ -115,6 +117,20 @@ def normalize_symbol_and_market(symbol, mid=6):
     # Si aucun préfixe trouvé, renvoyer l'original
     return symbol, mid
 
+# Fonction utilitaire pour lire les fichiers boursorama (normaux ou .bz2)
+def read_boursorama_file(file_path):
+    """Lit un fichier Boursorama, qu'il soit compressé (.bz2) ou non"""
+    try:
+        if file_path.endswith('.bz2'):
+            with bz2.open(file_path, 'rb') as f:
+                compressed_content = f.read()
+            return pd.read_pickle(BytesIO(compressed_content))
+        else:
+            return pd.read_pickle(file_path)
+    except Exception as e:
+        log_error(f"Error reading file {file_path}: {str(e)}")
+        return None
+
 #=================================================
 # SECTION 3: CLASSE DE TRAITEMENT PRINCIPAL
 #=================================================
@@ -148,7 +164,7 @@ class Processor:
         return self.market_cache.get(market_alias, 6)  # Par défaut Paris (ID 6)
     
     def process_boursorama_file(self, file_path):
-        """Traite un fichier Boursorama individuel"""
+        """Traite un fichier Boursorama individuel (normal ou .bz2)"""
         if file_path in processed_files:
             return 0, 0
         
@@ -156,7 +172,13 @@ class Processor:
             filename = os.path.basename(file_path)
             
             # Extraire l'alias du marché et la date du nom de fichier
-            parts = filename.split(' ', 1)
+            # Pour les fichiers .bz2, le nom réel est sans l'extension
+            if filename.endswith('.bz2'):
+                base_filename = filename[:-4]  # Retirer '.bz2'
+                parts = base_filename.split(' ', 1)
+            else:
+                parts = filename.split(' ', 1)
+                
             if len(parts) < 2:
                 log_error(f"Invalid filename format: {filename}")
                 return 0, 0
@@ -164,10 +186,44 @@ class Processor:
             alias = parts[0]  # Alias du marché (ex: compA)
             date_str = parts[1]  # Partie date
             
-            timestamp = pd.to_datetime(date_str)
+            # Traiter les dates avec underscores (_)
+            try:
+                if '_' in date_str:
+                    # Extraire la partie date (avant l'espace)
+                    date_part = date_str.split(' ')[0] if ' ' in date_str else date_str
+                    
+                    # Gérer les dates au format YYYY-MM-DD HH_MM_SS.ffffff
+                    # Remplacer les underscores par des deux-points pour l'heure
+                    hour_part = date_str.replace(date_part, '').strip()
+                    if hour_part.startswith(' '):
+                        hour_part = hour_part[1:]  # Enlever l'espace initial
+                    
+                    # Remplacer les underscores par des deux-points dans la partie heure
+                    hour_part_fixed = hour_part.replace('_', ':')
+                    
+                    # Reconstruire la date complète
+                    formatted_date_str = f"{date_part} {hour_part_fixed}"
+                    timestamp = pd.to_datetime(formatted_date_str)
+                else:
+                    timestamp = pd.to_datetime(date_str)
+                    
+            except Exception as e:
+                log_error(f"Error parsing date in {filename}: {str(e)}")
+                # Utiliser uniquement la partie date (YYYY-MM-DD) comme fallback
+                day_part = extract_boursorama_day(date_str)
+                if day_part:
+                    timestamp = pd.to_datetime(day_part)
+                else:
+                    raise ValueError(f"Unable to parse date from filename: {filename}")
             
-            # Charger le fichier pickle
-            df = pd.read_pickle(file_path)
+            # Charger le fichier (gérer .bz2 et fichiers normaux)
+            if filename.endswith('.bz2'):
+                with bz2.open(file_path, 'rb') as f:
+                    compressed_content = f.read()
+                df = pd.read_pickle(BytesIO(compressed_content))
+            else:
+                df = pd.read_pickle(file_path)
+                
             if df is None or df.empty:
                 return 0, 0
             
@@ -551,10 +607,6 @@ class Processor:
             
         total_committed = 0
         
-        # Vérifier l'état de la base de données avant d'enregistrer
-        current_count = self.db.df_query("SELECT COUNT(*) as count FROM companies")
-        companies_before = current_count['count'].iloc[0] if not current_count.empty else 0
-        
         # Obtenir les IDs d'entreprise existants pour éviter les doublons
         existing_ids_df = self.db.df_query("SELECT id FROM companies")
         existing_ids = set(existing_ids_df['id'].tolist()) if not existing_ids_df.empty else set()
@@ -588,10 +640,6 @@ class Processor:
                     # Rollback en cas d'erreur
                     if hasattr(self.db, 'connection') and self.db.connection:
                         self.db.connection.rollback()
-        
-        # Vérifier l'état de la base de données après l'enregistrement
-        current_count = self.db.df_query("SELECT COUNT(*) as count FROM companies")
-        companies_after = current_count['count'].iloc[0] if not current_count.empty else 0
         
         # Réinitialiser le lot d'entreprises
         self.companies_batch = []
@@ -791,6 +839,25 @@ def resolve_conflicting_values(boursorama_value, euronext_value):
     # Sinon utiliser la valeur disponible
     return boursorama_value if boursorama_value is not None else euronext_value
 
+def extract_boursorama_day(date_str):
+    """
+    Extrait la partie date (YYYY-MM-DD) d'une chaîne de date Boursorama,
+    même si elle contient des underscores
+    """
+    try:
+        # Extraire uniquement la partie YYYY-MM-DD
+        if ' ' in date_str:
+            day_part = date_str.split(' ')[0]
+        else:
+            day_part = date_str.split('_')[0]
+            
+        # Vérifier si c'est bien une date
+        if '-' in day_part and len(day_part.split('-')) == 3:
+            return day_part
+        return None
+    except Exception:
+        return None
+
 @timer_decorator
 def process_boursorama_files(db_model, start_date=datetime(2019, 1, 1), end_date=datetime(2024, 12, 31)):
     """Traite les fichiers Boursorama - Version ultra-optimisée mono-thread"""
@@ -859,8 +926,8 @@ def process_boursorama_files(db_model, start_date=datetime(2019, 1, 1), end_date
             
             # Optimisation 5: Préfiltre rapide des fichiers avant traitement complet
             for entry in entry_list:
-                # Ignorer les fichiers .bz2 et les sous-répertoires
-                if entry.name.endswith('.bz2') or not entry.is_file():
+                # Modifié: Inclure les fichiers .bz2
+                if not entry.is_file():
                     continue
                 
                 file_path = entry.path
@@ -870,17 +937,29 @@ def process_boursorama_files(db_model, start_date=datetime(2019, 1, 1), end_date
                     continue
                 
                 try:
+                    # Pour les fichiers .bz2, extraire le nom de base
+                    filename = entry.name
+                    if filename.endswith('.bz2'):
+                        base_name = filename[:-4]  # Retirer l'extension .bz2
+                    else:
+                        base_name = filename
+                    
                     # Filtrage rapide par nom
-                    parts = entry.name.split(' ', 1)
+                    parts = base_name.split(' ', 1)
                     if len(parts) < 2:
                         continue
                     
                     # Optimisation 6: Extraire directement les informations de date sans conversion
                     date_str = parts[1]
                     
+                    # Extraire la partie date (YYYY-MM-DD) seulement pour le filtrage
+                    day_part = extract_boursorama_day(date_str)
+                    if not day_part:
+                        continue
+                    
                     # Filtre par mois - extraction directe sans conversion datetime
-                    if '-' in date_str:
-                        month_str = date_str.split('-')[1]
+                    if '-' in day_part:
+                        month_str = day_part.split('-')[1]
                         try:
                             month = int(month_str)
                             target_months = month_filters.get(year, [])
@@ -890,17 +969,20 @@ def process_boursorama_files(db_model, start_date=datetime(2019, 1, 1), end_date
                             continue
                     
                     # Optimisation 7: Utiliser le cache de dates
-                    if date_str in date_cache:
-                        timestamp = date_cache[date_str]
+                    if day_part in date_cache:
+                        timestamp = date_cache[day_part]
                     else:
-                        timestamp = pd.to_datetime(date_str)
+                        timestamp = pd.to_datetime(day_part)
+                        date_cache[day_part] = timestamp
+                        # Utiliser également la date complète comme clé dans le cache
                         date_cache[date_str] = timestamp
                     
                     # Filtre final par date complète
                     if start_date <= timestamp <= end_date:
                         year_files.append((timestamp, file_path, parts[0]))  # parts[0] = market_name
                 
-                except Exception:
+                except Exception as e:
+                    log_error(f"Error parsing filename {entry.name}: {str(e)}")
                     continue  # Ignorer silencieusement
         
         # Optimisation 8: Tri efficace par date
@@ -1137,19 +1219,19 @@ def main():
         log_info("Database connection established")
         
         # Utiliser des plages de dates basées sur la disponibilité des données connues
-        #start_date = datetime(2020, 5, 1)
-        #end_date = datetime(2020, 7, 31)
+        start_date = datetime(2020, 5, 1)
+        end_date = datetime(2020, 7, 31)
         
         #log_info(f"Using date range: {start_date.date()} to {end_date.date()}")
         
         # Traiter les fichiers Boursorama - séquentiel
         boursorama_files, boursorama_companies, boursorama_stocks, boursorama_daystocks = process_boursorama_files(
-            db,
+            db, start_date, end_date
         )
         
         # Traiter les fichiers Euronext - séquentiel
         euronext_files, euronext_companies, euronext_stocks, euronext_daystocks = process_euronext_files(
-            db, 
+            db, start_date, end_date
         )
         
         # Nettoyer la base de données
