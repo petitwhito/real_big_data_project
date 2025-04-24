@@ -1226,12 +1226,12 @@ def main():
         
         # Traiter les fichiers Boursorama - séquentiel
         boursorama_files, boursorama_companies, boursorama_stocks, boursorama_daystocks = process_boursorama_files(
-            db, start_date, end_date
+            db, 
         )
         
         # Traiter les fichiers Euronext - séquentiel
         euronext_files, euronext_companies, euronext_stocks, euronext_daystocks = process_euronext_files(
-            db, start_date, end_date
+            db, 
         )
         
         # Nettoyer la base de données
