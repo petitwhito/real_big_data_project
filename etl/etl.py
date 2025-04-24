@@ -1137,19 +1137,19 @@ def main():
         log_info("Database connection established")
         
         # Utiliser des plages de dates basées sur la disponibilité des données connues
-        start_date = datetime(2020, 5, 1)
-        end_date = datetime(2020, 7, 31)
+        #start_date = datetime(2020, 5, 1)
+        #end_date = datetime(2020, 7, 31)
         
-        log_info(f"Using date range: {start_date.date()} to {end_date.date()}")
+        #log_info(f"Using date range: {start_date.date()} to {end_date.date()}")
         
         # Traiter les fichiers Boursorama - séquentiel
         boursorama_files, boursorama_companies, boursorama_stocks, boursorama_daystocks = process_boursorama_files(
-            db, start_date, end_date 
+            db,
         )
         
         # Traiter les fichiers Euronext - séquentiel
         euronext_files, euronext_companies, euronext_stocks, euronext_daystocks = process_euronext_files(
-            db, start_date, end_date
+            db, 
         )
         
         # Nettoyer la base de données
