@@ -23,13 +23,6 @@ if hasattr(sys.stdout, 'reconfigure'):
 time_stats = {}
 processed_files = set()
 
-# Structure des statistiques de normalisation (Optional, can be removed if not used for logging)
-symbol_normalization_stats = {
-    'prefix_removed': 0,
-    'special_cases': 0,
-    'symbols_processed': 0
-}
-
 #=================================================
 # SECTION 1: FONCTIONS UTILITAIRES ET LOGGING
 #=================================================
@@ -72,17 +65,6 @@ MARKET_PREFIXES = {
     '1b': ('bruxelle', 8)     # Bruxelle - autre préfixe
 }
 
-# Cas spéciaux pour certains symboles
-SPECIAL_CASES = {
-    '1rPAALMIL': ('ALMIL', 6),  # 1000MERCIS
-    '1rPAGECP': ('GECP', 6)     # GECI INTL
-}
-
-# REMOVED: clean_company_name function (replaced by vectorized operation)
-# def clean_company_name(name):
-#    ...
-
-# --- MODIFIED: normalize_symbol_and_market TO USE CACHE ---
 def normalize_symbol_and_market(symbol, mid=6, cache=None): # Add cache parameter
     """
     Normalise un symbole Boursorama en supprimant le préfixe
@@ -105,26 +87,14 @@ def normalize_symbol_and_market(symbol, mid=6, cache=None): # Add cache paramete
         if cache_key in cache:
             return cache[cache_key]
 
-    # Mettre à jour le compteur global (optional)
-    # symbol_normalization_stats['symbols_processed'] += 1
-
     result = None
-    # Vérifier d'abord les cas spéciaux
-    if symbol in SPECIAL_CASES:
-        normalized, market_id = SPECIAL_CASES[symbol]
-        # symbol_normalization_stats['special_cases'] += 1 # Optional
-        result = (normalized, market_id)
 
-    # Vérifier le préfixe et le supprimer si trouvé
-    if result is None:
-        for prefix, (_, market_id) in MARKET_PREFIXES.items():
-            if symbol.startswith(prefix):
-                # symbol_normalization_stats['prefix_removed'] += 1 # Optional
-                normalized_symbol = symbol[len(prefix):]
-                result = (normalized_symbol, market_id)
-                break # Found prefix, stop searching
+    for prefix, (_, market_id) in MARKET_PREFIXES.items():
+        if symbol.startswith(prefix):
+            normalized_symbol = symbol[len(prefix):]
+            result = (normalized_symbol, market_id)
+            break 
 
-    # Si aucun préfixe trouvé, renvoyer l'original
     if result is None:
         result = (symbol, mid)
 
@@ -133,7 +103,6 @@ def normalize_symbol_and_market(symbol, mid=6, cache=None): # Add cache paramete
         cache[cache_key] = result
 
     return result
-# --- END CACHE MODIFICATION ---
 
 #=================================================
 # SECTION 3: CLASSE DE TRAITEMENT PRINCIPAL
@@ -162,7 +131,7 @@ class Processor:
         """Charge les IDs de marché depuis la base de données"""
         markets_df = self.db.df_query("SELECT id, alias FROM markets")
         self.market_cache = dict(zip(markets_df['alias'], markets_df['id'])) if not markets_df.empty else {}
-        log_info(f"Market cache loaded with {len(self.market_cache)} markets")
+        log_info(f"Market cache loaded with {len(self.market_cache)} markets") # Toujours 10
 
     def get_market_id(self, market_alias):
         """Obtient l'ID de marché depuis l'alias, avec repli vers Paris"""
@@ -183,14 +152,12 @@ class Processor:
             else:
                 parts = filename.split(' ', 1)
 
-            if len(parts) < 2:
-                # log_error(f"Invalid filename format: {filename}") # Keep logging minimal if needed
+            if len(parts) < 2: # check si erreur dans le nom
                 return 0, 0
 
             alias = parts[0]
             date_str = parts[1]
 
-            # Traiter les dates avec underscores (_)
             try:
                 if '_' in date_str:
                     date_part = date_str.split(' ')[0] if ' ' in date_str else date_str
@@ -204,15 +171,12 @@ class Processor:
                     timestamp = pd.to_datetime(date_str)
 
             except Exception as e:
-                # log_error(f"Error parsing date in {filename}: {str(e)}")
                 day_part = extract_boursorama_day(date_str)
                 if day_part:
                     timestamp = pd.to_datetime(day_part)
                 else:
-                    # raise ValueError(f"Unable to parse date from filename: {filename}") # Avoid exceptions
                     return 0, 0
 
-            # --- OPTIMIZED BZ2 READING ---
             df = None
             try:
                 if filename.endswith('.bz2'):
@@ -223,8 +187,8 @@ class Processor:
             except Exception as read_error:
                 log_error(f"Error reading file {file_path}: {str(read_error)}")
                 return 0, 0
-            # --- END OPTIMIZED BZ2 READING ---
 
+            # Vérifier si le DataFrame est vide ou None
             if df is None or df.empty:
                 return 0, 0
 
@@ -236,7 +200,6 @@ class Processor:
                 df = df.reset_index()
 
             if 'symbol' not in df.columns:
-                # log_error(f"No symbol column in {filename}")
                 return 0, 0
 
             mid = self.get_market_id(alias)
@@ -283,7 +246,7 @@ class Processor:
 
             # Filtrer les volumes nuls et valeurs invalides (CORE LOGIC - UNCHANGED)
             valid_mask = (df['last'] > 0) & (df['volume'] > 0)
-            df = df[valid_mask].dropna(subset=['last'])
+            df = df[valid_mask]
 
             if df.empty:
                 return 0, 0
@@ -326,7 +289,7 @@ class Processor:
         if not {'symbol', 'name'}.issubset(df.columns):
             return pd.DataFrame()
 
-        companies = df[['symbol', 'name', 'mid']].drop_duplicates('symbol').dropna(subset=['symbol'])
+        companies = df[['symbol', 'name', 'mid']].drop_duplicates('symbol')
 
         has_isin = 'isin' in df.columns
         if has_isin:
@@ -485,7 +448,7 @@ class Processor:
 
 
         # 5. Filter rows where mapping failed (no corresponding company found)
-        stocks_subset = stocks_subset.dropna(subset=['cid'])
+        stocks_subset = stocks_subset
 
         if stocks_subset.empty:
             return pd.DataFrame()
@@ -499,7 +462,7 @@ class Processor:
         })
 
         # 7. Filter invalid values (CORE LOGIC)
-        stocks_df = stocks_df[stocks_df['value'] > 0].dropna(subset=['value'])
+        stocks_df = stocks_df[stocks_df['value'] > 0]
 
         # Set index
         stocks_df = stocks_df.set_index('cid')
@@ -860,7 +823,7 @@ def load_euronext_file(file_path):
 
         # Filter invalid data (CORE LOGIC)
         valid_mask = (df['volume'] > 0) & (df['last'] > 0)
-        df = df[valid_mask].dropna(subset=['last'])
+        df = df[valid_mask]
 
 
         if df.empty:
@@ -1197,15 +1160,6 @@ def clean_database(db_model):
 
         db_model.commit()
 
-        # 4. Optimiser la base de données (créer des index)
-        log_info("Creating indexes (if not exist)...")
-        db_model.execute("CREATE INDEX IF NOT EXISTS idx_stocks_date_cid ON stocks(date, cid)")
-        db_model.execute("CREATE INDEX IF NOT EXISTS idx_companies_symbol ON companies(symbol)")
-        db_model.execute("CREATE INDEX IF NOT EXISTS idx_companies_isin ON companies(isin)")
-        # Consider index on daystocks as well
-        db_model.execute("CREATE INDEX IF NOT EXISTS idx_daystocks_date_cid ON daystocks(date, cid)")
-
-        db_model.commit()
         log_info("Database cleanup and indexing complete")
     except Exception as e:
         log_error(f"Database cleaning failed: {str(e)}")
@@ -1252,8 +1206,8 @@ def main():
         log_info("Database connection established")
 
         # Définir les plages de dates
-        start_date = datetime(2020, 5, 1)
-        end_date = datetime(2020, 7, 31)
+        start_date = datetime(2019, 1, 1)
+        end_date = datetime(2024, 12, 31)
         log_info(f"Using date range: {start_date.date()} to {end_date.date()}")
 
         # Traiter les fichiers Boursorama
