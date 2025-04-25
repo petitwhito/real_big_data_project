@@ -1,0 +1,437 @@
+.container,
+.container-fluid {
+	max-width: 95% !important;
+}
+
+
+/* General Body and App Styles */
+body {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+	background-color: #f8f9fa;
+	color: #343a40;
+	margin: 0;
+	padding: 0;
+}
+
+/* Tab Styling */
+.tab-content {
+	padding: 25px;
+	background-color: #ffffff;
+	border-radius: 8px;
+	box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+}
+
+/* App specific container */
+.app-container {
+	padding-top: 20px;
+}
+
+.app-title {
+	margin-bottom: 20px;
+	color: #343a40;
+	font-weight: 300;
+	text-align: center;
+}
+
+.app-tabs {
+	margin-bottom: 0 !important;
+	border-bottom: 1px solid #dee2e6;
+}
+
+.tab-content-container {
+	padding-top: 20px;
+}
+
+/* Headings */
+h3,
+h4 {
+	color: #007bff;
+	/* Primary blue color */
+	margin-bottom: 20px;
+	font-weight: 500;
+}
+
+h4 {
+	color: #17a2b8;
+	/* Info blue color */
+	margin-top: 25px;
+}
+
+
+/* Control Panel Styling (Left Column in Tab1 & Tab2) */
+.control-panel {
+	background-color: #fdfdfe;
+	padding: 20px;
+	border-radius: 5px;
+	border: 1px solid #e9ecef;
+	height: fit-content;
+}
+
+/* Input Grouping */
+.input-group {
+	margin-bottom: 20px;
+}
+
+.control-label {
+	display: block;
+	font-weight: 600;
+	margin-bottom: 8px;
+	font-size: 0.9rem;
+	color: #495057;
+}
+
+.sub-label {
+	display: block;
+	font-weight: 500;
+	margin-bottom: 4px;
+	font-size: 0.85rem;
+	color: #6c757d;
+}
+
+/* Dropdown Styling */
+.dash-dropdown {
+	border-radius: 4px;
+}
+
+.Select--multi .Select-value,
+.Select-placeholder {
+	line-height: 30px !important;
+}
+
+.Select-control {
+	/* The main input box */
+	border-radius: 4px !important;
+	border: 1px solid #ced4da !important;
+	min-height: 38px !important;
+}
+
+.Select-input input {
+	padding-top: 5px !important;
+	padding-bottom: 5px !important;
+}
+
+.Select.is-focused>.Select-control {
+	border-color: #80bdff !important;
+	box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25) !important;
+}
+
+.Select-menu-outer {
+	/* The dropdown menu list */
+	z-index: 1050 !important;
+	/* Ensure menu appears above other elements */
+}
+
+/* company dropdown */
+.company-select-dropdown {
+	width: 350px !important;
+	max-width: 100%;
+}
+
+.company-select-dropdown .Select-control {
+	width: 100% !important;
+}
+
+.company-select-dropdown .Select-menu-outer {
+	width: 100% !important;
+	min-width: 350px;
+}
+
+/* Date Picker Styling */
+.DateInput_input,
+.DateInput_input_1 {
+	padding: 6px 12px !important;
+	font-size: 1rem !important;
+	line-height: 1.5 !important;
+	border-radius: 4px !important;
+	border: 1px solid #ced4da !important;
+	height: auto !important;
+	width: 100% !important;
+	box-sizing: border-box;
+}
+
+.DateInput_input__focused {
+	border-color: #80bdff !important;
+	box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25) !important;
+}
+
+.DateRangePickerInput_arrow_svg path {
+	fill: #6c757d;
+}
+
+.DateRangePickerInput {
+	width: 100%;
+	display: flex !important;
+	justify-content: space-between;
+}
+
+.DateRangePickerInput>div {
+	width: calc(50% - 20px);
+}
+
+
+/* Radio Items & Checklist Styling */
+.radio-items label,
+.checklist-items label {
+	margin-right: 15px;
+	font-size: 0.95rem;
+	display: inline-flex;
+	align-items: center;
+	margin-bottom: 5px;
+}
+
+.radio-items input[type="radio"],
+.checklist-items input[type="checkbox"] {
+	margin-right: 5px;
+	accent-color: #007bff;
+}
+
+/* Number Input Styling */
+.number-input {
+	width: 100%;
+	padding: 6px 12px;
+	font-size: 1rem;
+	line-height: 1.5;
+	color: #495057;
+	background-color: #fff;
+	background-clip: padding-box;
+	border: 1px solid #ced4da;
+	border-radius: 4px;
+	transition: border-color .15s ease-in-out, box-shadow .15s ease-in-out;
+	box-sizing: border-box;
+}
+
+.number-input:focus {
+	color: #495057;
+	background-color: #fff;
+	border-color: #80bdff;
+	outline: 0;
+	box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, .25);
+}
+
+/* Bollinger Settings Grouping */
+.bollinger-settings {
+	border: 1px solid #e9ecef;
+	padding: 15px;
+	border-radius: 4px;
+	margin-top: 10px;
+	background-color: #f8f9fa;
+}
+
+/* Diagnostics Section */
+.diagnostics-section {
+	margin-top: 25px;
+	padding-top: 15px;
+	border-top: 1px solid #dee2e6;
+}
+
+.diagnostics-output {
+	margin-top: 15px;
+	padding: 10px;
+	background-color: #f8f9fa;
+	border: 1px solid #e9ecef;
+	border-radius: 4px;
+	font-size: 0.9rem;
+	max-height: 200px;
+	overflow-y: auto;
+}
+
+.diagnostics-output p {
+	margin-bottom: 5px;
+}
+
+/* Buttons */
+.btn {
+	border-radius: 4px;
+	padding: 8px 15px;
+	font-size: 0.95rem;
+	cursor: pointer;
+	transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out;
+}
+
+.btn-primary {
+	background-color: #007bff;
+	border-color: #007bff;
+	color: white;
+}
+
+.btn-primary:hover {
+	background-color: #0056b3;
+	border-color: #0056b3;
+}
+
+.btn-secondary {
+	background-color: #6c757d;
+	border-color: #6c757d;
+	color: white;
+}
+
+.btn-secondary:hover {
+	background-color: #5a6268;
+	border-color: #545b62;
+}
+
+.generate-button,
+.execute-button {
+	width: 100%;
+	margin-top: 10px;
+}
+
+
+/* Chart Area */
+.chart-area {
+	padding-left: 20px;
+}
+
+.main-chart {
+	border: 1px solid #e9ecef;
+	border-radius: 5px;
+	background-color: #fff;
+	min-height: 100vh;
+}
+
+
+/* Table Area & Container (Tab2 & Tab3) */
+.table-area {
+	padding-left: 20px;
+}
+
+.table-container {
+	margin-top: 0px;
+	background-color: #fff;
+	border: 1px solid #e9ecef;
+	border-radius: 5px;
+	padding: 15px;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+/* DataTable Styling */
+.dash-table-container .dash-spreadsheet-container {
+	border: none;
+}
+
+.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner table {
+	border-collapse: collapse;
+}
+
+.dash-spreadsheet th {
+	/* Header cells */
+	background-color: #f8f9fa !important;
+	color: #343a40 !important;
+	font-weight: 600 !important;
+	padding: 10px 12px !important;
+	border-bottom: 2px solid #dee2e6 !important;
+	border-right: 1px solid #e9ecef;
+	text-align: left;
+	white-space: nowrap;
+}
+
+.dash-spreadsheet td {
+	/* Data cells */
+	padding: 10px 12px !important;
+	border-bottom: 1px solid #e9ecef !important;
+	border-right: 1px solid #e9ecef;
+	font-size: 0.9rem;
+}
+
+.dash-spreadsheet tr:last-child td {
+	border-bottom: none !important;
+}
+
+.dash-spreadsheet th:last-child,
+.dash-spreadsheet td:last-child {
+	border-right: none;
+}
+
+/* Odd row background */
+.dash-spreadsheet tr:nth-child(odd) td {
+	background-color: #fdfdfe !important;
+}
+
+/* Filter input styling */
+.dash-filter input {
+	border: 1px solid #ced4da;
+	border-radius: 3px;
+	padding: 4px 6px;
+	margin-top: 5px;
+	width: calc(100% - 12px);
+}
+
+/* SQL Tab Styling */
+.sql-textarea {
+	width: 100%;
+	height: 150px;
+	padding: 10px;
+	border: 1px solid #ced4da;
+	border-radius: 4px;
+	font-family: monospace;
+	font-size: 0.95rem;
+	margin-bottom: 10px;
+	resize: vertical;
+	box-sizing: border-box;
+}
+
+.sql-textarea:focus {
+	border-color: #80bdff;
+	outline: 0;
+	box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, .25);
+}
+
+.sql-output-section {
+	margin-top: 20px;
+}
+
+/* Messages */
+.error-message {
+	color: #dc3545;
+	margin-top: 10px;
+	font-weight: 500;
+	padding: 8px;
+	background-color: #f8d7da;
+	border: 1px solid #f5c6cb;
+	border-radius: 4px;
+}
+
+.success-message {
+	color: #28a745;
+	margin-top: 10px;
+	font-weight: 500;
+	padding: 8px;
+	background-color: #d4edda;
+	border: 1px solid #c3e6cb;
+	border-radius: 4px;
+}
+
+.info-message {
+	color: #17a2b8;
+	margin-top: 10px;
+	font-style: italic;
+	padding: 8px;
+	background-color: #d1ecf1;
+	border: 1px solid #bee5eb;
+	border-radius: 4px;
+}
+
+.placeholder-message {
+	color: #6c757d;
+	margin-top: 10px;
+	font-style: italic;
+	padding: 15px;
+	text-align: center;
+	background-color: #f8f9fa;
+	border: 1px dashed #ced4da;
+	border-radius: 4px;
+}
+
+/* Adjustments for Bootstrap Tabs */
+.nav-tabs .nav-link {
+	border-top-left-radius: .25rem;
+	border-top-right-radius: .25rem;
+	padding: .75rem 1.25rem;
+	font-size: 1rem;
+}
+
+.nav-tabs .nav-link.active {
+	color: #007bff;
+	background-color: #fff;
+	border-color: #dee2e6 #dee2e6 #fff;
+}

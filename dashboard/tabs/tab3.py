@@ -8,28 +8,28 @@ import dash_bootstrap_components as dbc
 
 from app import app, db
 
-tab3_layout = html.Div([
+tab3_layout = html.Div(className='tab-content', children=[
     dbc.Row([
-        dbc.Col([
+        dbc.Col(className='sql-input-section', children=[
             html.H3("SQL Query Interface"),
             dcc.Textarea(
                 id='sql-query-input',
-                placeholder="Enter your SQL query here...",
-                style={'width': '100%', 'height': 200},
+                placeholder="Enter your SQL query here (e.g., SELECT DISTINCT company FROM companies LIMIT 10;)",
+                className='sql-textarea',
             ),
             html.Button('Execute Query', id='execute-query-button',
-                        className='btn btn-primary my-3'),
-            html.Div(id='sql-query-error', style={'color': 'red'}),
+                        className='btn btn-primary execute-button'),
+            html.Div(id='sql-query-error', className='error-message'),
         ], width=12),
-
-        dbc.Col([
+    ]),
+    dbc.Row([
+        dbc.Col(className='sql-output-section', children=[
             html.H4("Query Result"),
-            html.Div(id='sql-query-result-container'),
+            html.Div(id='sql-query-result-container',
+                     className='table-container'),
         ], width=12),
     ]),
 ])
-
-# Callback to execute SQL query
 
 
 @app.callback(
@@ -40,52 +40,61 @@ tab3_layout = html.Div([
 )
 def execute_sql_query(n_clicks, query):
     if not n_clicks or not query:
-        return html.Div("Enter a SQL query and click 'Execute Query'"), ""
+        return html.Div("Enter a SQL query and click 'Execute Query'", className='placeholder-message'), ""
+
+    error_output = ""
+    result_output = ""
 
     try:
-        # Execute the query through the database model
         results = db.execute_query(query)
 
         if isinstance(results, pd.DataFrame):
             if results.empty:
-                return html.Div("Query executed successfully, but returned no data."), ""
+                result_output = html.Div(
+                    "Query executed successfully, but returned no data.", className='info-message')
+            else:
+                table_data = results.to_dict('records')
+                columns = [{"name": str(col), "id": str(col)}
+                           for col in results.columns]
 
-            # Convert to dictionary for dash_table
-            table_data = results.to_dict('records')
-            columns = [{"name": str(col), "id": str(col)}
-                       for col in results.columns]
-
-            # Create the table
-            result_table = dash_table.DataTable(
-                id='sql-result-table',
-                columns=columns,
-                data=table_data,
-                style_table={'overflowX': 'auto'},
-                style_cell={
-                    'textAlign': 'left',
-                    'minWidth': '100px',
-                    'maxWidth': '300px',
-                    'overflow': 'hidden',
-                    'textOverflow': 'ellipsis',
-                },
-                style_header={
-                    'backgroundColor': 'rgb(230, 230, 230)',
-                    'fontWeight': 'bold'
-                },
-                style_data_conditional=[
-                    {
-                        'if': {'row_index': 'odd'},
-                        'backgroundColor': 'rgb(248, 248, 248)'
-                    }
-                ],
-                page_size=15,
-                sort_action='native',
-                filter_action='native',
-            )
-
-            return result_table, ""
+                result_table = dash_table.DataTable(
+                    id='sql-result-table',
+                    columns=columns,
+                    data=table_data,
+                    page_size=20,
+                    sort_action='native',
+                    filter_action='native',
+                    fixed_rows={'headers': True},
+                    style_table={'height': '60vh',
+                                 'overflowY': 'auto', 'overflowX': 'auto'},
+                    style_cell={
+                        'minWidth': '100px', 'width': '150px', 'maxWidth': '300px',
+                        'overflow': 'hidden',
+                        'textOverflow': 'ellipsis',
+                        'textAlign': 'left',
+                        'padding': '8px'
+                    },
+                    style_header={
+                        'backgroundColor': '#f8f9fa',
+                        'fontWeight': 'bold',
+                        'borderBottom': '1px solid #dee2e6'
+                    },
+                    style_data={
+                        'borderBottom': '1px solid #dee2e6',
+                    },
+                    style_data_conditional=[
+                        {
+                            'if': {'row_index': 'odd'},
+                            'backgroundColor': '#fdfdfe'
+                        }
+                    ],
+                )
+                result_output = result_table
         else:
-            return html.Div(f"Query executed successfully. Rows affected: {results}"), ""
+            result_output = html.Div(f"Query executed successfully. Rows affected: {
+                                     results}", className='success-message')
 
     except Exception as e:
-        return html.Div(), f"Error executing query: {str(e)}"
+        error_output = f"Error executing query: {str(e)}"
+
+    return result_output, error_output

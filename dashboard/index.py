@@ -12,19 +12,22 @@ from tabs.tab3 import tab3_layout
 
 from app import app, db
 
-# Création de la présentation Dash
-layout = dbc.Container([
-    html.H1("Un joli titre"),
+# Creation of the main layout of the app
+layout = dbc.Container(fluid=True, className='app-container', children=[
+    html.H1("Magnificent Stock WebApp", className='app-title'),
     dbc.Tabs(
         id="tabs-example",
         active_tab="tab-1",
+        className='app-tabs',
         children=[
-            dbc.Tab(label="Graphique", tab_id="tab-1"),
-            dbc.Tab(label="Tableau", tab_id="tab-2"),
-            dbc.Tab(label="SQL", tab_id="tab-3"),
+            dbc.Tab(label="Visualization", tab_id="tab-1",
+                    className='custom-tab'),
+            dbc.Tab(label="Data Table", tab_id="tab-2",
+                    className='custom-tab'),
+            dbc.Tab(label="SQL Query", tab_id="tab-3", className='custom-tab'),
         ],
     ),
-    html.Div(id="tabs-content"),
+    html.Div(id="tabs-content", className='tab-content-container'),
 ])
 
 # Callback to update the dropdown options based on input text
@@ -41,3 +44,4 @@ def render_content(tab):
         return tab2_layout
     elif tab == "tab-3":
         return tab3_layout
+    return html.P("This shouldn't be displayed")
