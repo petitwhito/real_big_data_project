@@ -790,11 +790,9 @@ def load_euronext_file(file_path):
 
         # Standardiser les noms de colonnes
         column_mapping = {
-            'Symbol': 'symbol', 'Name': 'name', 'Last': 'last',
+            'Symbol': 'symbol', 'Name': 'name', 'Last': 'last', 'last Price': 'last',
             'Volume': 'volume', 'ISIN': 'isin'
         }
-        # Clean potential whitespace and rename efficiently
-        df.columns = df.columns.str.strip()
         rename_dict = {col: column_mapping[col] for col in df.columns if col in column_mapping}
         df.rename(columns=rename_dict, inplace=True)
 
@@ -814,7 +812,7 @@ def load_euronext_file(file_path):
 
         # Convert 'last' and 'volume' efficiently
         if 'last' in df.columns:
-             df['last'] = pd.to_numeric(df['last'].astype(str).str.replace(r'[^\d.,]+', '', regex=True).str.replace(',', '.', regex=False), errors='coerce')
+             df['last'] = pd.to_numeric(df['last'].fillna('').astype(str).str.replace(r'[^\d.,]+', '', regex=True).str.replace(',', '.', regex=False), errors='coerce')
         if 'volume' not in df.columns:
              df['volume'] = 0
         elif 'volume' in df.columns:
@@ -921,9 +919,6 @@ def process_boursorama_files(db_model, start_date=datetime(2019, 1, 1), end_date
         try:
             with os.scandir(year_dir) as entries:
                 for entry in entries:
-                    if not entry.is_file() or not (entry.name.endswith('.pkl') or entry.name.endswith('.bz2')):
-                        continue
-
                     file_path = entry.path
                     if file_path in processed_files_cache:
                         continue
