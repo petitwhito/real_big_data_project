@@ -128,11 +128,11 @@ h4 {
 }
 
 .company-select-dropdown .Select-control {
-	width: 100% !important;
+	width: calc(100%) !important;
 }
 
 .company-select-dropdown .Select-menu-outer {
-	width: 100% !important;
+	width: calc(100%) !important;
 	min-width: 350px;
 }
 
@@ -159,13 +159,12 @@ h4 {
 }
 
 .DateRangePickerInput {
-	width: 100%;
 	display: flex !important;
 	justify-content: space-between;
 }
 
 .DateRangePickerInput>div {
-	width: calc(50% - 20px);
+	width: calc(80%);
 }
 
 
