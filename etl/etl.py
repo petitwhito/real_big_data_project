@@ -863,7 +863,7 @@ def main():
 
         # Définir les plages de dates
         start_date = datetime(2019, 1, 1)
-        end_date = datetime(2024, 1, 31)
+        end_date = datetime(2024, 12, 31)
         log_info(f"Using date range: {start_date.date()} to {end_date.date()}")
 
         # Traiter les fichiers Boursorama
