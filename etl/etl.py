@@ -8,14 +8,13 @@ import os
 import sys
 import traceback
 import time
-import bz2  # Ajout pour gérer les fichiers .bz2
-# from io import BytesIO # No longer needed for bz2 reading
+import bz2  
 
 # Configuration de base
 HOME = "/home/bourse/data/"  # Répertoires boursorama et euronext attendus
 logger = mylogging.getLogger(__name__, filename="/tmp/bourse.log")
 
-# Forcer le vidage immédiat de la sortie pour les environnements Docker
+# Pour print direct sous docker
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(line_buffering=True)
 
@@ -64,7 +63,7 @@ MARKET_PREFIXES = {
     '1b': ('bruxelle', 8)     # Bruxelle - autre préfixe
 }
 
-def normalize_symbol_and_market(symbol, mid=6, cache=None): # Add cache parameter
+def normalize_symbol_and_market(symbol, mid=6, cache=None): 
     """
     Normalise un symbole Boursorama en supprimant le préfixe
     et détermine l'ID du marché correct (avec cache)
@@ -117,8 +116,7 @@ class Processor:
         self.day_batch = []         # Lot d'actions pour agrégation quotidienne
         self.daystocks_batch = []   # Lot d'actions agrégées quotidiennement
         self.market_cache = {}      # Cache pour les IDs de marché
-        # OPTIMIZATION: Initialize symbol cache within the class instance
-        self.symbol_normalization_cache = {}
+        self.symbol_normalization_cache = {} # Cache des symbols car souvent redondants (la fonction normalize est appelée au moins 4 millions de fois selon snakeviz)
         self.isin_to_id_map = {}    # Map des ISINs vers IDs d'entreprises
 
         # Charger le cache de marché
@@ -183,26 +181,21 @@ class Processor:
             df["date"] = timestamp
 
             df['name'] = df['name'].astype(str).str.removeprefix('SRD')
-            
-
-                
-            # Check if 'last' is already numeric
+                            
+            # Last est pas le même entre bz2 et les pickle de 2024
             if pd.api.types.is_numeric_dtype(df['last']):
-                # Already numeric, no need for string operations
                 pass
             else:
-                # Apply string operations if it's a string type
-                if df['last'].dtype == object:  # Check if it's a string-like object
+                if df['last'].dtype == object:  
                     try:
                         df['last'] = df['last'].str.replace(r'\([a-zA-Z]\)|\s+', '', regex=True)
                     except AttributeError:
-                        # Handle any non-string elements by converting to string first
+                        # Pas sur de l'utilité pas au cas ou
                         df['last'] = df['last'].astype(str).replace(r'\([a-zA-Z]\)|\s+', '', regex=True)
             
-            # Convert to numeric regardless of original type
             df['last'] = pd.to_numeric(df['last'], errors='coerce')
             
-            # Filter valid records
+            # On enlève les valeurs inutiles pour alléger et augmenté la rapidité
             valid_mask = (df['last'] > 0) & (df['volume'] > 0)
             df = df[valid_mask]
 
@@ -241,7 +234,7 @@ class Processor:
         if has_isin:
             companies['isin'] = df['isin'].copy()
 
-        if companies.empty:
+        if companies.empty: # Peut être null si on a process des entreprises déjà traitées
             return pd.DataFrame()
 
         symbols = companies['symbol'].values
@@ -250,7 +243,7 @@ class Processor:
         normalized_symbols = []
         normalized_mids = []
 
-        for i, (symbol, mid) in enumerate(zip(symbols, mids)):
+        for i, (symbol, mid) in enumerate(zip(symbols, mids)): # Important pour boursorama (pas trop pour euronext mais on le fais quand même pour simplicité de code)
             norm_symbol, norm_mid = normalize_symbol_and_market(symbol, mid, self.symbol_normalization_cache)
             normalized_symbols.append(norm_symbol)
             normalized_mids.append(norm_mid)
@@ -261,8 +254,8 @@ class Processor:
         companies = companies.drop_duplicates('symbol')
         companies.set_index('symbol', inplace=True)
 
-        # The next part is a bit unreadable, but it's very usefull !!
-        # 1. Initialize company cache for faster lookups and ISIN matching (core part of part 2)
+        # Les 2 prochaines parties sont un peu "lourdes" mais elles sont nécessaires pour la gestion des ISINs
+        # 1. On instancie le DataFrame companies_save si il n'existe pas pour la prochaine partie, le but est        # d'avoir un DataFrame avec les entreprises déjà présentes dans la base de données
         if self.companies_save is None: 
             existing_companies = self.db.df_query("SELECT id, name, symbol, mid, isin FROM companies")
             if not existing_companies.empty:
@@ -275,7 +268,7 @@ class Processor:
                 self.companies_save = pd.DataFrame(columns=['id', 'name', 'mid', 'isin'])
                 self.companies_save.index.name = 'symbol'
 
-        # 2. Match and update companies with the same ISIN from different sources (boursorama and euronext)
+        # 2. Mettre à jour les entreprises existantes avec les nouvelles données comme les noms et symboles peuvent changer entre euronext et boursorama
         if has_isin and self.isin_to_id_map:
             for idx, row in companies.iterrows():
                  if 'isin' in row and pd.notna(row['isin']) and row['isin'] in self.isin_to_id_map:
@@ -286,12 +279,12 @@ class Processor:
                         update_query = "UPDATE companies SET name = %s, symbol = %s WHERE id = %s"
                         self.db.execute(update_query, [row['name'], idx, existing_id])
 
-        # 3. Identify truly new companies that need to be added to the database
+        # 3. On identifie les nouvelles entreprises à ajouter
         existing_symbols = set(self.companies_save.index)
         current_symbols = set(companies.index)
         new_symbols = current_symbols - existing_symbols
 
-        if not new_symbols: # If no new companies we can skip the rest
+        if not new_symbols: # Si pas de nouvelles entreprises, on ne fait rien
             return pd.DataFrame()
 
         new_companies = companies.loc[list(new_symbols)].copy()
@@ -316,16 +309,15 @@ class Processor:
 
     def __process_stocks(self, df):
         """Traite le DataFrame et remplit la table des actions"""
-        stocks_subset = df[['symbol', 'last', 'date', 'volume']].copy()
+        stocks_subset = df[['symbol', 'last', 'date', 'volume']].copy() #On créer une copie pour éviter des modifications sur le DataFrame d'origine
         stocks_subset.rename(columns={'last': 'value'}, inplace=True)        
         stocks_subset = stocks_subset[stocks_subset['volume'] > 0]
         
-        # 3. Normalize symbols for consistent company matching
         default_mid = 6
         mids = df['mid'] if 'mid' in df.columns else [default_mid] * len(stocks_subset)
         
         normalized_symbols = []
-        for symbol, mid in zip(stocks_subset['symbol'], mids):
+        for symbol, mid in zip(stocks_subset['symbol'], mids): # On enlève les prefix
             norm_symbol, _ = normalize_symbol_and_market(symbol, mid, self.symbol_normalization_cache)
             normalized_symbols.append(norm_symbol)
         
@@ -340,7 +332,7 @@ class Processor:
             'cid': stocks_subset['cid'].astype(np.int16),
             'date': stocks_subset['date'],
             'value': stocks_subset['value'],
-            'volume': stocks_subset['volume'].astype(np.int32)
+            'volume': stocks_subset['volume'].astype(np.int32)  #On met le volume en int32 pour opti
         })
         
         stocks_df = stocks_df[stocks_df['value'] > 0].set_index('cid')
@@ -354,9 +346,11 @@ class Processor:
         if not self.day_batch:
             return 0
         
-        daystocks = pd.concat(self.day_batch) # copy=False removed for broader compatibility
+        daystocks = pd.concat(self.day_batch)
 
-        aggregated_daystocks = daystocks.groupby(level='cid').agg( # Group by index 'cid'
+        # L'agrégation transforme les données granulaires (potentiellement des centaines par jour) en une synthèse OHLCV journalière par titre
+        # Ici c'est super important pour la mémoire car ça réduit le volume de données à stocker et traiter
+        aggregated_daystocks = daystocks.groupby(level='cid').agg( 
             open=pd.NamedAgg(column='value', aggfunc='first'),
             close=pd.NamedAgg(column='value', aggfunc='last'),
             high=pd.NamedAgg(column='value', aggfunc='max'),
@@ -383,26 +377,25 @@ class Processor:
 
         stocks = pd.concat(self.stocks_batch) 
 
-        # Reset index et tri
         stocks.reset_index(inplace=True)
 
         stocks.sort_values(['cid', 'date'], inplace=True, kind='mergesort')
         stocks['day'] = stocks['date'].dt.floor('D')
 
         # Calculer les différences entre valeurs consécutives
-        # Use groupby().transform('shift') for potentially better performance on large groups
+        # On utilise groupby() et shift() poru des meilleurs performances
         stocks['value_prev'] = stocks.groupby('cid')['value'].shift(1)
         stocks['value_change'] = (stocks['value'] - stocks['value_prev']).abs()
-        # Avoid division by zero or near-zero
+        # On empêche la division par zéro
         stocks['pct_change'] = (stocks['value_change'] / stocks['value_prev'].abs().replace(0, np.nan))
 
         # Garder les lignes avec changement significatif (plus de 0.1%)
-        min_change_pct = 0.001  # 0.1%
-        # Handle NaN pct_change (e.g., first entry or zero prev value)
+        min_change_pct = 0.001 
+        
         has_change = stocks['pct_change'].fillna(0) > min_change_pct
 
         # Ajouter les première et dernière valeurs de chaque jour
-        # Use keep='first' (default) and keep='last'
+        
         first_of_day = ~stocks.duplicated(['cid', 'day'])
         last_of_day = ~stocks.duplicated(['cid', 'day'], keep='last')
 
@@ -414,7 +407,7 @@ class Processor:
         keep_mask = has_change | first_of_day | last_of_day | first_of_cid | last_by_cid
 
         # Appliquer le filtre et nettoyer
-        stocks = stocks.loc[keep_mask, ['cid', 'date', 'value', 'volume']].copy() # Select columns explicitly
+        stocks = stocks.loc[keep_mask, ['cid', 'date', 'value', 'volume']].copy() 
         stocks.set_index('cid', inplace=True)
 
         self.stocks_batch = [stocks] if not stocks.empty else []
@@ -427,7 +420,6 @@ class Processor:
         if not self.companies_batch:
             return 0
 
-        # Combine all batches first
         all_new_companies = pd.concat(self.companies_batch)
 
         # Obtenir les IDs d'entreprise existants pour éviter les doublons
@@ -465,10 +457,8 @@ class Processor:
             return 0
 
         total_committed = 0
-        # Combine all batches first
         all_stocks = pd.concat(self.stocks_batch)
 
-        # CRUCIAL: Appeler df_write avec index=True et index_label='cid'
         self.db.df_write(
             all_stocks,
             'stocks',
@@ -488,10 +478,9 @@ class Processor:
             return 0
 
         total_committed = 0
-            # Combine all batches
         all_daystocks = pd.concat(self.daystocks_batch)
 
-            # Écrire dans la base de données
+         # Écrire dans la base de données
         self.db.df_write(all_daystocks, 'daystocks', commit=True, index=True, index_label='cid')
         total_committed = len(all_daystocks)
 
@@ -511,9 +500,8 @@ class Processor:
 # SECTION 4: FONCTIONS DE TRAITEMENT DE FICHIERS
 #=================================================
 
-# --- MODIFIED: load_euronext_file ---
 def load_euronext_file(file_path):
-    """Charge et analyse un fichier Euronext (CSV ou Excel)"""
+    """Charge et analyse un fichier Euronext"""
     try:
         df = None
         if file_path.endswith('.csv'):
@@ -530,19 +518,19 @@ def load_euronext_file(file_path):
             'last Price': 'last',
             'Volume': 'volume', 
             'ISIN': 'isin',
-            'Market': 'market'  # Add Market column mapping
+            'Market': 'market'
         }
         rename_dict = {col: column_mapping[col] for col in df.columns if col in column_mapping}
         df.rename(columns=rename_dict, inplace=True)
 
         df['name'] = df['name'].str.removeprefix('SRD')
 
-        # Convert 'last' and 'volume' efficiently
+        # Converti 'last' et 'volume' de manière efficace
         df['last'] = pd.to_numeric(df['last'].fillna('').astype(str).str.replace(r'[^\d.,]+', '', regex=True).str.replace(',', '.', regex=False), errors='coerce')
 
         df['volume'] = pd.to_numeric(df['volume'].astype(str).str.replace(r'[^\d]+', '', regex=True), errors='coerce').fillna(0)
 
-        # Filter invalid data
+        # Comme avant on enlève les valeurs inutiles
         valid_mask = (df['volume'] > 0) & (df['last'] > 0)
         df = df[valid_mask]
 
@@ -553,12 +541,9 @@ def load_euronext_file(file_path):
             file_date = date_match.group(1)
             df['date'] = pd.to_datetime(file_date)
             
-            # Default market ID is Paris (6)
             df['mid'] = 6
             
-            # Extract market from the 'market' column if it exists
             if 'market' in df.columns:
-                # Define market mapping
                 market_map = {
                     'paris': 6,
                     'amsterdam': 5,
@@ -636,7 +621,7 @@ def process_boursorama_files(db_model, start_date=datetime(2019, 1, 1), end_date
         log_info(f"Scanning files in year directory {year}")
         year_files = []
 
-        # Use os.scandir for potentially faster listing
+        # On utilise scandir plutôt que os.listdir pour une meilleure performance
         with os.scandir(year_dir) as entries:
             for entry in entries:
                 file_path = entry.path
@@ -647,7 +632,6 @@ def process_boursorama_files(db_model, start_date=datetime(2019, 1, 1), end_date
                 date_str = parts[1]
                 day_part = extract_boursorama_day(date_str)
 
-                        # Filter by month using string manipulation (faster than datetime conversion)
                 month_str = day_part.split('-')[1]
                 month = int(month_str)
                 
@@ -662,7 +646,7 @@ def process_boursorama_files(db_model, start_date=datetime(2019, 1, 1), end_date
                     year_files.append((timestamp, file_path, parts[0]))
 
 
-        year_files.sort() # Sort by timestamp
+        year_files.sort() 
 
         if year_files:
             months_count = {}
@@ -674,7 +658,7 @@ def process_boursorama_files(db_model, start_date=datetime(2019, 1, 1), end_date
 
             last_month_logged = None
             files_processed_in_month = 0
-            stocks_in_current_commit_batch = 0 # Track stocks for commit threshold
+            stocks_in_current_commit_batch = 0 
 
             for timestamp, file_path, market_name in year_files:
                 current_month = timestamp.month
@@ -691,18 +675,18 @@ def process_boursorama_files(db_model, start_date=datetime(2019, 1, 1), end_date
                     day_committed = processor.commit_daystocks()
                     daystocks_added_total += day_committed
 
-                # Process the file
+                # On processe le fichier Boursorama
                 companies_added, stocks_processed = processor.process_boursorama_file(file_path)
 
                 companies_added_total += companies_added
                 stocks_in_current_commit_batch += stocks_processed
-                stocks_added_total += stocks_processed # Accumulate total count
+                stocks_added_total += stocks_processed 
 
                 if companies_added > 0 or stocks_processed > 0:
                     files_processed += 1
                     files_processed_in_month += 1
 
-                    # Commit periodically based on stock count
+                    # Commit périodiquement pour éviter de surcharger la mémoire
                     if stocks_in_current_commit_batch >= commit_threshold:
                         stocks_committed = processor.commit_stocks()
                         log_info(f">>> Progress: Committed {stocks_committed} stock records, {files_processed} files processed")
@@ -720,14 +704,11 @@ def process_boursorama_files(db_model, start_date=datetime(2019, 1, 1), end_date
         day_committed = processor.commit_daystocks()
         daystocks_added_total += day_committed
 
-    # Final cleanup and commit
     log_info("Cleaning stocks data and performing final commit...")
     processor.clean_stocks()
     final_companies, final_stocks, final_days = processor.commit_all()
 
-    # Adjust total counts based on final commit
     companies_added_total += final_companies 
-    # stocks_added_total is already accumulated
     daystocks_added_total += final_days 
 
     log_info(f"Boursorama processing complete: {files_processed} files processed, "
@@ -776,7 +757,7 @@ def process_euronext_files(db_model, start_date=datetime(2019, 1, 1), end_date=d
     stocks_added_total = 0
     daystocks_added_total = 0
     prev_date = None
-    stocks_in_current_commit_batch = 0 # Track for commit threshold
+    stocks_in_current_commit_batch = 0 
 
     for file_path in files_to_process_paths:
         filename = os.path.basename(file_path)
@@ -793,14 +774,14 @@ def process_euronext_files(db_model, start_date=datetime(2019, 1, 1), end_date=d
             df = load_euronext_file(file_path)
             if df is not None and not df.empty:
                 companies_added = processor.process_dataframe(df)
-                stocks_processed = len(df) # Number of rows in the loaded dataframe
+                stocks_processed = len(df) 
 
                 companies_added_total += companies_added
                 stocks_added_total += stocks_processed
                 stocks_in_current_commit_batch += stocks_processed
                 files_processed += 1
 
-                # Commit periodically
+                # idem que pour boursorama
                 if stocks_in_current_commit_batch >= 50000: 
                      stocks_committed = processor.commit_stocks()
                      log_info(f">>> Progress (Euronext): Committed {stocks_committed} stock records")
@@ -809,18 +790,16 @@ def process_euronext_files(db_model, start_date=datetime(2019, 1, 1), end_date=d
 
             prev_date = current_day
 
-    # Process final day's stocks
+    # Process le dernier jours
     if prev_date is not None:
         processor.process_daystocks(prev_date)
         day_committed = processor.commit_daystocks()
         daystocks_added_total += day_committed
 
-    # Final cleanup and commit for Euronext data
-    processor.clean_stocks() # Clean remaining stocks in batch
+    processor.clean_stocks()
     final_companies, final_stocks, final_days = processor.commit_all()
 
     companies_added_total += final_companies
-    # stocks_added_total is already accumulated
     daystocks_added_total += final_days
 
     log_info(f"Euronext processing complete: {files_processed} files processed, "
@@ -829,7 +808,7 @@ def process_euronext_files(db_model, start_date=datetime(2019, 1, 1), end_date=d
 
     return files_processed, companies_added_total, stocks_added_total, daystocks_added_total
 
-# Not a necessary function but just in case !!
+# Pas nécessaire mais juste au cas ou !!!
 @timer_decorator
 def clean_database(db_model):
     """Nettoie et optimise la base de données"""
@@ -859,7 +838,7 @@ def main():
     log_info("STARTING ETL PROCESS")
     log_info("="*50)
 
-    db = None # Initialize db to None
+    db = None 
     try:
         # Se connecter à la base de données
         log_info("Connecting to database...")
@@ -873,7 +852,7 @@ def main():
 
         log_info("Database connection established")
 
-        # Définir les plages de dates
+        # Définir les plages de dates, ici on traite tout de 2019 à 2024 par défaut mais le user peut sélectionner une plage de date (ADDITIONNAL FEATURE)
         start_date = datetime(2019, 1, 1)
         end_date = datetime(2024, 12, 31)
         log_info(f"Using date range: {start_date.date()} to {end_date.date()}")
@@ -892,7 +871,7 @@ def main():
         companies_df = db.df_query("SELECT COUNT(*) as count FROM companies")
         stocks_df = db.df_query("SELECT COUNT(*) as count FROM stocks")
         daystocks_df = db.df_query("SELECT COUNT(*) as count FROM daystocks")
-        companies_with_stocks = db.df_query("SELECT COUNT(DISTINCT cid) as count FROM stocks") # Alias count
+        companies_with_stocks = db.df_query("SELECT COUNT(DISTINCT cid) as count FROM stocks") 
 
         companies_count = companies_df['count'].iloc[0] if not companies_df.empty else 0
         stocks_count = stocks_df['count'].iloc[0] if not stocks_df.empty else 0
@@ -920,7 +899,6 @@ def main():
         traceback.print_exc()
         return 1
     finally:
-        # Ensure database connection is closed
         if db and hasattr(db, 'close'):
             log_info("Closing database connection.")
             db.close()
