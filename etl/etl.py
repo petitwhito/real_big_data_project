@@ -168,6 +168,10 @@ class Processor:
             except Exception as read_error:
                 log_error(f"Error reading file {file_path}: {str(read_error)}")
                 return 0, 0
+            
+            if df is None or df.empty:
+                log_error(f"File {file_path} is empty or invalid")
+                return 0, 0
 
             # Gérer le cas où le symbole est à la fois index et colonne
             if df.index.name == 'symbol' and 'symbol' in df.columns:
@@ -183,21 +187,18 @@ class Processor:
             df['name'] = df['name'].astype(str).str.removeprefix('SRD')
                             
             # Last est pas le même entre bz2 et les pickle de 2024
-            if pd.api.types.is_numeric_dtype(df['last']):
-                pass
-            else:
-                if df['last'].dtype == object:  
-                    try:
-                        df['last'] = df['last'].str.replace(r'\([a-zA-Z]\)|\s+', '', regex=True)
-                    except AttributeError:
-                        # Pas sur de l'utilité pas au cas ou
-                        df['last'] = df['last'].astype(str).replace(r'\([a-zA-Z]\)|\s+', '', regex=True)
-            
+            if df['last'].dtype == 'object':
+                df['last'] = df['last'].str.replace(r'\([a-zA-Z]\)|\s+', '', regex=True)
+                df['last'] = df['last'].str.replace(',', '.', regex=False)
             df['last'] = pd.to_numeric(df['last'], errors='coerce')
             
             # On enlève les valeurs inutiles pour alléger et augmenté la rapidité
             valid_mask = (df['last'] > 0) & (df['volume'] > 0)
             df = df[valid_mask]
+            
+            if df.empty:
+                log_info("No valid data in file after filtering")
+                return 0, 0
 
             companies_added = self.process_dataframe(df)
 
@@ -848,7 +849,6 @@ def main():
             host='db',
             password='monmdp'
         )
-
 
         log_info("Database connection established")
 
