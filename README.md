@@ -100,7 +100,12 @@ Pour améliorer significativement les performances de notre pipeline ETL, nous a
 Ces optimisations réduisent considérablement le temps d'exécution et permettent de traiter de grands volumes de données même avec des ressources limitées.
 
 ---
+## Note
 
+Le dashboard met du temps à accéder aux données, car il doit charger toutes les données de la base de données.
+Attendre 20s quand vous clicker sur Select Companies.
+
+---
 ## Membres du groupes 
 - Léo Sambrook
 - Arthur Hamard
