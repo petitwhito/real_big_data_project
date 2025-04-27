@@ -21,7 +21,6 @@ if hasattr(sys.stdout, 'reconfigure'):
 
 # Statistiques et suivi du traitement
 time_stats = {}
-processed_files = set()
 
 #=================================================
 # SECTION 1: FONCTIONS UTILITAIRES ET LOGGING
@@ -81,7 +80,6 @@ def normalize_symbol_and_market(symbol, mid=6, cache=None): # Add cache paramete
     if not symbol or not isinstance(symbol, str):
         return symbol, mid
 
-    # Use cache if provided
     if cache is not None:
         cache_key = (symbol, mid)
         if cache_key in cache:
@@ -98,7 +96,6 @@ def normalize_symbol_and_market(symbol, mid=6, cache=None): # Add cache paramete
     if result is None:
         result = (symbol, mid)
 
-    # Store in cache if provided
     if cache is not None:
         cache[cache_key] = result
 
@@ -139,57 +136,39 @@ class Processor:
 
     def process_boursorama_file(self, file_path):
         """Traite un fichier Boursorama individuel (normal ou .bz2)"""
-        if file_path in processed_files:
-            return 0, 0
 
         try:
             filename = os.path.basename(file_path)
 
-            # Extraire l'alias du marché et la date du nom de fichier
             if filename.endswith('.bz2'):
                 base_filename = filename[:-4]
                 parts = base_filename.split(' ', 1)
             else:
                 parts = filename.split(' ', 1)
 
-            if len(parts) < 2: # check si erreur dans le nom
-                return 0, 0
-
             alias = parts[0]
             date_str = parts[1]
 
-            try:
-                if '_' in date_str:
-                    date_part = date_str.split(' ')[0] if ' ' in date_str else date_str
-                    hour_part = date_str.replace(date_part, '').strip()
-                    if hour_part.startswith(' '):
-                        hour_part = hour_part[1:]
-                    hour_part_fixed = hour_part.replace('_', ':')
-                    formatted_date_str = f"{date_part} {hour_part_fixed}"
-                    timestamp = pd.to_datetime(formatted_date_str)
-                else:
-                    timestamp = pd.to_datetime(date_str)
-
-            except Exception as e:
-                day_part = extract_boursorama_day(date_str)
-                if day_part:
-                    timestamp = pd.to_datetime(day_part)
-                else:
-                    return 0, 0
+            if '_' in date_str:
+                date_part = date_str.split(' ')[0] if ' ' in date_str else date_str
+                hour_part = date_str.replace(date_part, '').strip()
+                if hour_part.startswith(' '):
+                    hour_part = hour_part[1:]
+                hour_part_fixed = hour_part.replace('_', ':')
+                formatted_date_str = f"{date_part} {hour_part_fixed}"
+                timestamp = pd.to_datetime(formatted_date_str)
+            else:
+                timestamp = pd.to_datetime(date_str)
 
             df = None
             try:
                 if filename.endswith('.bz2'):
                     with bz2.open(file_path, 'rb') as f:
-                        df = pd.read_pickle(f) # Read directly from file object
+                        df = pd.read_pickle(f)
                 else:
                     df = pd.read_pickle(file_path)
             except Exception as read_error:
                 log_error(f"Error reading file {file_path}: {str(read_error)}")
-                return 0, 0
-
-            # Vérifier si le DataFrame est vide ou None
-            if df is None or df.empty:
                 return 0, 0
 
             # Gérer le cas où le symbole est à la fois index et colonne
@@ -199,62 +178,36 @@ class Processor:
             if df.index.name == 'symbol':
                 df = df.reset_index()
 
-            if 'symbol' not in df.columns:
-                return 0, 0
-
             mid = self.get_market_id(alias)
             df["mid"] = mid
             df["date"] = timestamp
 
-            # --- VECTORIZED NAME CLEANING ---
-            if 'name' in df.columns:
-                # Ensure 'name' is string type before using .str accessor
-                df['name'] = df['name'].astype(str)
-                # Use str.removeprefix if pandas version >= 1.4, otherwise use slicing
-                try:
-                    df['name'] = df['name'].str.removeprefix('SRD')
-                except AttributeError: # Handle older pandas versions
-                    srd_mask = df['name'].str.startswith('SRD', na=False)
-                    df.loc[srd_mask, 'name'] = df.loc[srd_mask, 'name'].str[3:]
-            # --- END VECTORIZED NAME CLEANING ---
+            df['name'] = df['name'].astype(str).str.removeprefix('SRD')
+            
 
-            if 'name' not in df.columns:
-                df['name'] = df['symbol']
-
-            # Traiter la colonne 'last'
-            if 'last' in df.columns:
-                if df['last'].dtype == 'object':
-                    df['last'] = df['last'].str.replace(r'\([a-zA-Z]\)|\s+', '', regex=True)
-                    df['last'] = df['last'].str.replace(',', '.', regex=False)
-                df['last'] = pd.to_numeric(df['last'], errors='coerce')
+                
+            # Check if 'last' is already numeric
+            if pd.api.types.is_numeric_dtype(df['last']):
+                # Already numeric, no need for string operations
+                pass
             else:
-                if 'value' in df.columns:
-                    df['last'] = pd.to_numeric(df['value'], errors='coerce')
-                elif 'close' in df.columns:
-                    df['last'] = pd.to_numeric(df['close'], errors='coerce')
-                else:
-                    # log_error(f"No price column (last/value/close) in {filename}")
-                    return 0, 0
-
-            # Ajouter le volume s'il manque
-            if 'volume' not in df.columns:
-                df['volume'] = 0
-            else:
-                if df['volume'].dtype == 'object':
-                    df['volume'] = df['volume'].astype(str).str.replace(r'[^\d.]', '', regex=True)
-                    df['volume'] = pd.to_numeric(df['volume'], errors='coerce').fillna(0)
-
-            # Filtrer les volumes nuls et valeurs invalides (CORE LOGIC - UNCHANGED)
+                # Apply string operations if it's a string type
+                if df['last'].dtype == object:  # Check if it's a string-like object
+                    try:
+                        df['last'] = df['last'].str.replace(r'\([a-zA-Z]\)|\s+', '', regex=True)
+                    except AttributeError:
+                        # Handle any non-string elements by converting to string first
+                        df['last'] = df['last'].astype(str).replace(r'\([a-zA-Z]\)|\s+', '', regex=True)
+            
+            # Convert to numeric regardless of original type
+            df['last'] = pd.to_numeric(df['last'], errors='coerce')
+            
+            # Filter valid records
             valid_mask = (df['last'] > 0) & (df['volume'] > 0)
             df = df[valid_mask]
 
-            if df.empty:
-                return 0, 0
-
-            # Traiter le DataFrame
             companies_added = self.process_dataframe(df)
 
-            processed_files.add(file_path)
             return companies_added, len(df)
 
         except Exception as e:
@@ -266,18 +219,14 @@ class Processor:
         Traite le DataFrame d'un fichier en extrayant ses données et en les mettant
         dans les tables d'entreprise et d'actions.
         """
-        # Traiter les entreprises
         companies_df = self.__process_companies(df)
         companies_added = 0
         if companies_df is not None and not companies_df.empty:
              companies_added = len(companies_df)
              self.companies_batch.append(companies_df)
 
-
-        # Traiter les actions
         stocks_df = self.__process_stocks(df)
 
-        # Ajouter aux lots
         if stocks_df is not None and not stocks_df.empty:
             self.stocks_batch.append(stocks_df)
             self.day_batch.append(stocks_df)
@@ -285,10 +234,7 @@ class Processor:
         return companies_added
 
     def __process_companies(self, df):
-        """Traite le DataFrame et remplit la table des entreprises - Version ultra-optimisée"""
-        if not {'symbol', 'name'}.issubset(df.columns):
-            return pd.DataFrame()
-
+        """Traite le DataFrame et remplit la table des entreprises"""
         companies = df[['symbol', 'name', 'mid']].drop_duplicates('symbol')
 
         has_isin = 'isin' in df.columns
@@ -304,13 +250,10 @@ class Processor:
         normalized_symbols = []
         normalized_mids = []
 
-        # --- USE SYMBOL CACHE ---
         for i, (symbol, mid) in enumerate(zip(symbols, mids)):
-            # Pass self.symbol_normalization_cache to the function
             norm_symbol, norm_mid = normalize_symbol_and_market(symbol, mid, self.symbol_normalization_cache)
             normalized_symbols.append(norm_symbol)
             normalized_mids.append(norm_mid)
-        # --- END USE SYMBOL CACHE ---
 
         companies['symbol'] = normalized_symbols
         companies['mid'] = normalized_mids
@@ -318,7 +261,9 @@ class Processor:
         companies = companies.drop_duplicates('symbol')
         companies.set_index('symbol', inplace=True)
 
-        if self.companies_save is None:
+        # The next part is a bit unreadable, but it's very usefull !!
+        # 1. Initialize company cache for faster lookups and ISIN matching (core part of part 2)
+        if self.companies_save is None: 
             existing_companies = self.db.df_query("SELECT id, name, symbol, mid, isin FROM companies")
             if not existing_companies.empty:
                 existing_companies.set_index('symbol', inplace=True)
@@ -330,7 +275,7 @@ class Processor:
                 self.companies_save = pd.DataFrame(columns=['id', 'name', 'mid', 'isin'])
                 self.companies_save.index.name = 'symbol'
 
-        # ISIN update logic (remains the same)
+        # 2. Match and update companies with the same ISIN from different sources (boursorama and euronext)
         if has_isin and self.isin_to_id_map:
             for idx, row in companies.iterrows():
                  if 'isin' in row and pd.notna(row['isin']) and row['isin'] in self.isin_to_id_map:
@@ -341,182 +286,81 @@ class Processor:
                         update_query = "UPDATE companies SET name = %s, symbol = %s WHERE id = %s"
                         self.db.execute(update_query, [row['name'], idx, existing_id])
 
-
+        # 3. Identify truly new companies that need to be added to the database
         existing_symbols = set(self.companies_save.index)
         current_symbols = set(companies.index)
         new_symbols = current_symbols - existing_symbols
 
-        if not new_symbols:
+        if not new_symbols: # If no new companies we can skip the rest
             return pd.DataFrame()
 
         new_companies = companies.loc[list(new_symbols)].copy()
 
         if not new_companies.empty:
             next_id = 1
-            # Handle case where companies_save might be empty or max() returns NaN
             if not self.companies_save.empty and 'id' in self.companies_save.columns:
-                 max_id = self.companies_save['id'].max()
-                 if pd.notna(max_id):
-                     next_id = min(32700, int(max_id) + 1)
-
-
-            if next_id + len(new_companies) > 32767:
-                log_error(f"Company ID limit reached (32767). Skipping {len(new_companies) - (32767 - next_id)} companies.")
-                new_companies = new_companies.iloc[:(32767 - next_id)]
-                if new_companies.empty:
-                    return pd.DataFrame()
-
+                max_id = self.companies_save['id'].max() 
+                if pd.notna(max_id):
+                    next_id = int(max_id) + 1
+            
             new_companies['id'] = np.arange(next_id, next_id + len(new_companies), dtype=np.int16)
-
+            
             if has_isin:
-                for idx, row in new_companies.iterrows():
-                    if 'isin' in row and pd.notna(row['isin']):
-                        self.isin_to_id_map[row['isin']] = row['id']
-
-            # Use concat instead of append for modern pandas
+                valid_isins = new_companies[new_companies['isin'].notna()]
+                if not valid_isins.empty:
+                    self.isin_to_id_map.update(dict(zip(valid_isins['isin'], valid_isins['id'])))
+            
             self.companies_save = pd.concat([self.companies_save, new_companies])
-
 
         return new_companies
 
     def __process_stocks(self, df):
-        """Traite le DataFrame et remplit la table des actions - Version ultra-optimisée"""
-        if self.companies_save is None or self.companies_save.empty:
-            return pd.DataFrame()
-
-        # Determine required price column
-        required_cols = {'symbol', 'date'}
-        price_col = None
-        if 'last' in df.columns:
-            price_col = 'last'
-        elif 'value' in df.columns:
-            price_col = 'value'
-        elif 'close' in df.columns:
-            price_col = 'close'
-        else:
-            return pd.DataFrame() # No price column found
-        required_cols.add(price_col)
-
-        if not required_cols.issubset(df.columns):
-             return pd.DataFrame()
-
-
-        # --- OPTIMIZED SYMBOL/CID MAPPING ---
-        # 1. Select necessary columns including the ORIGINAL symbol and price column
-        cols_to_keep = ['symbol', price_col, 'date']
-        if 'volume' in df.columns:
-            cols_to_keep.append('volume')
-        stocks_subset = df[cols_to_keep].copy()
-
-        # Rename price column to 'value' for consistency
-        stocks_subset.rename(columns={price_col: 'value'}, inplace=True)
-
-        # 2. Add volume if missing, filter zero volume (CORE LOGIC)
-        if 'volume' not in stocks_subset.columns:
-            stocks_subset['volume'] = 0
-        # Ensure volume is numeric before filtering
-        stocks_subset['volume'] = pd.to_numeric(stocks_subset['volume'], errors='coerce').fillna(0)
+        """Traite le DataFrame et remplit la table des actions"""
+        stocks_subset = df[['symbol', 'last', 'date', 'volume']].copy()
+        stocks_subset.rename(columns={'last': 'value'}, inplace=True)        
         stocks_subset = stocks_subset[stocks_subset['volume'] > 0]
-
-
-        if stocks_subset.empty:
-            return pd.DataFrame()
-
-        # 3. Re-normalize symbols in this subset (use cache)
-        normalized_symbols = []
-        # Assume default mid=6 if not present in df, otherwise get it
+        
+        # 3. Normalize symbols for consistent company matching
         default_mid = 6
-        mids_to_use = df['mid'] if 'mid' in df.columns else [default_mid] * len(stocks_subset)
-
-        for symbol, mid in zip(stocks_subset['symbol'], mids_to_use):
-             norm_symbol, _ = normalize_symbol_and_market(symbol, mid, self.symbol_normalization_cache)
-             normalized_symbols.append(norm_symbol)
+        mids = df['mid'] if 'mid' in df.columns else [default_mid] * len(stocks_subset)
+        
+        normalized_symbols = []
+        for symbol, mid in zip(stocks_subset['symbol'], mids):
+            norm_symbol, _ = normalize_symbol_and_market(symbol, mid, self.symbol_normalization_cache)
+            normalized_symbols.append(norm_symbol)
+        
         stocks_subset['normalized_symbol'] = normalized_symbols
-
-
-        # 4. Use pd.Series.map for efficient mapping from NORMALIZED symbol to CID
-        # Ensure companies_save index is 'symbol' (normalized)
-        if self.companies_save.index.name != 'symbol':
-             if 'symbol' in self.companies_save.columns:
-                 self.companies_save = self.companies_save.set_index('symbol')
-             else:
-                 log_error("companies_save DataFrame is missing 'symbol' index/column during stock processing.")
-                 return pd.DataFrame() # Cannot proceed
-
+        
+        # 4. Map normalized symbols to company IDs
         symbol_to_cid_map = self.companies_save['id']
         stocks_subset['cid'] = stocks_subset['normalized_symbol'].map(symbol_to_cid_map)
-
-
-        # 5. Filter rows where mapping failed (no corresponding company found)
-        stocks_subset = stocks_subset
-
-        if stocks_subset.empty:
-            return pd.DataFrame()
-
-        # 6. Create final stocks DataFrame with correct types
+                
+        # 6. Create final DataFrame with correct types
         stocks_df = pd.DataFrame({
             'cid': stocks_subset['cid'].astype(np.int16),
             'date': stocks_subset['date'],
-            'value': pd.to_numeric(stocks_subset['value'], errors='coerce'), # Already renamed
-            'volume': stocks_subset['volume'].astype(np.int32) # Already numeric
+            'value': stocks_subset['value'],
+            'volume': stocks_subset['volume'].astype(np.int32)
         })
-
-        # 7. Filter invalid values (CORE LOGIC)
-        stocks_df = stocks_df[stocks_df['value'] > 0]
-
-        # Set index
-        stocks_df = stocks_df.set_index('cid')
-        # --- END OPTIMIZED SYMBOL/CID MAPPING ---
-
+        
+        stocks_df = stocks_df[stocks_df['value'] > 0].set_index('cid')
+        
         return stocks_df
 
     def process_daystocks(self, date):
         """
         À partir du lot d'actions traité, crée des actions quotidiennes
         """
-        if not self.day_batch:
-            return
+        daystocks = pd.concat(self.day_batch) # copy=False removed for broader compatibility
 
-        # Concaténer toutes les actions de ce jour
-        try:
-            # Use copy=False if pandas version allows and memory is tight
-            daystocks = pd.concat(self.day_batch) # copy=False removed for broader compatibility
-        except Exception as concat_error:
-             log_error(f"Error concatenating day_batch for date {date}: {concat_error}")
-             self.day_batch = [] # Clear batch on error
-             return
+        aggregated_daystocks = daystocks.groupby(level='cid').agg( # Group by index 'cid'
+            open=pd.NamedAgg(column='value', aggfunc='first'),
+            close=pd.NamedAgg(column='value', aggfunc='last'),
+            high=pd.NamedAgg(column='value', aggfunc='max'),
+            low=pd.NamedAgg(column='value', aggfunc='min'),
+            volume=pd.NamedAgg(column='volume', aggfunc='sum')
+        )
 
-
-        if daystocks.empty:
-            self.day_batch = []  # Réinitialiser le lot journalier
-            return
-
-        # Ensure index is 'cid' before grouping
-        if daystocks.index.name != 'cid':
-             if 'cid' in daystocks.columns:
-                 daystocks = daystocks.reset_index().set_index('cid') # Reset and set index
-             else:
-                 log_error(f"Missing 'cid' for grouping daystocks on {date}")
-                 self.day_batch = []
-                 return
-
-
-        # Optimisation: Utiliser agg avec NamedAgg pour une agrégation efficace
-        try:
-            aggregated_daystocks = daystocks.groupby(level='cid').agg( # Group by index 'cid'
-                open=pd.NamedAgg(column='value', aggfunc='first'),
-                close=pd.NamedAgg(column='value', aggfunc='last'),
-                high=pd.NamedAgg(column='value', aggfunc='max'),
-                low=pd.NamedAgg(column='value', aggfunc='min'),
-                volume=pd.NamedAgg(column='volume', aggfunc='sum')
-            )
-        except Exception as agg_error:
-             log_error(f"Error aggregating daystocks for date {date}: {agg_error}")
-             self.day_batch = [] # Clear batch on error
-             return
-
-
-        # Définir la date
         aggregated_daystocks['date'] = date
 
         # Ajouter des statistiques supplémentaires
@@ -530,30 +374,13 @@ class Processor:
 
     def clean_stocks(self):
         """Nettoyage optimisé des données de stocks"""
-        if not self.stocks_batch:
-            return
 
-        try:
-            # Combiner tous les lots
-            stocks = pd.concat(self.stocks_batch) # copy=False removed
-        except Exception as concat_error:
-            log_error(f"Error concatenating stocks_batch for cleaning: {concat_error}")
-            self.stocks_batch = [] # Clear batch on error
-            return
-
-
-        if stocks.empty:
-            self.stocks_batch = []
-            return
+        stocks = pd.concat(self.stocks_batch) 
 
         # Reset index et tri
         stocks.reset_index(inplace=True)
 
-        # Optimisation 1: Utiliser sort_values avec inplace
-        # mergesort is stable, good if original order matters within duplicates
         stocks.sort_values(['cid', 'date'], inplace=True, kind='mergesort')
-
-        # Optimisation 2: Conversion plus efficace du jour
         stocks['day'] = stocks['date'].dt.floor('D')
 
         # Calculer les différences entre valeurs consécutives
@@ -563,12 +390,10 @@ class Processor:
         # Avoid division by zero or near-zero
         stocks['pct_change'] = (stocks['value_change'] / stocks['value_prev'].abs().replace(0, np.nan))
 
-
         # Garder les lignes avec changement significatif (plus de 0.1%)
         min_change_pct = 0.001  # 0.1%
         # Handle NaN pct_change (e.g., first entry or zero prev value)
         has_change = stocks['pct_change'].fillna(0) > min_change_pct
-
 
         # Ajouter les première et dernière valeurs de chaque jour
         # Use keep='first' (default) and keep='last'
@@ -584,116 +409,64 @@ class Processor:
 
         # Appliquer le filtre et nettoyer
         stocks = stocks.loc[keep_mask, ['cid', 'date', 'value', 'volume']].copy() # Select columns explicitly
-        # stocks.drop(columns=['value_prev', 'value_change', 'pct_change', 'day'], inplace=True) # Already dropped by selection
         stocks.set_index('cid', inplace=True)
 
-        # Remplacer le lot
         self.stocks_batch = [stocks] if not stocks.empty else []
 
 
     def commit_companies(self):
         """Enregistrer toutes les entreprises dans la base de données"""
-        if not self.companies_batch:
-            return 0
-
         total_committed = 0
 
-        try:
-            # Combine all batches first
-            all_new_companies = pd.concat(self.companies_batch)
-            if all_new_companies.empty:
-                 self.companies_batch = []
-                 return 0
+        # Combine all batches first
+        all_new_companies = pd.concat(self.companies_batch)
 
-            # Obtenir les IDs d'entreprise existants pour éviter les doublons
-            existing_ids_df = self.db.df_query("SELECT id FROM companies")
-            existing_ids = set(existing_ids_df['id'].tolist()) if not existing_ids_df.empty else set()
+        # Obtenir les IDs d'entreprise existants pour éviter les doublons
+        existing_ids_df = self.db.df_query("SELECT id FROM companies")
+        existing_ids = set(existing_ids_df['id'].tolist()) if not existing_ids_df.empty else set()
 
-            # Préparer pour l'insertion dans la base de données
-            companies_to_insert_df = all_new_companies.reset_index()
+        # Préparer pour l'insertion dans la base de données
+        companies_to_insert_df = all_new_companies.reset_index()
 
-            # Filtrer les entreprises qui n'existent pas déjà
-            mask = ~companies_to_insert_df['id'].isin(existing_ids)
-            final_new_companies = companies_to_insert_df[mask]
+        # Filtrer les entreprises qui n'existent pas déjà
+        mask = ~companies_to_insert_df['id'].isin(existing_ids)
+        final_new_companies = companies_to_insert_df[mask]
 
-            if not final_new_companies.empty:
-                # Utiliser la méthode du modèle DB pour l'insertion efficace
-                self.db.df_write(
-                    final_new_companies,
-                    'companies',
-                    commit=True,
-                    if_exists="append",
-                    index=False
-                )
-                total_committed = len(final_new_companies)
-                # No need to update existing_ids set here as we commit once
+        if not final_new_companies.empty:
+            # Utiliser la méthode du modèle DB pour l'insertion efficace
+            self.db.df_write(
+                final_new_companies,
+               'companies',
+                commit=True,
+                if_exists="append",
+                index=False
+            )
+            total_committed = len(final_new_companies)
 
-        except Exception as e:
-            log_error(f"Error committing companies: {str(e)}")
-            # Rollback might be handled within db.df_write or needs explicit call
-            if hasattr(self.db, 'connection') and self.db.connection:
-                 try:
-                     self.db.connection.rollback()
-                 except Exception as rb_err:
-                     log_error(f"Rollback failed: {rb_err}")
-            total_committed = 0 # Indicate failure
 
-        finally:
-            # Réinitialiser le lot d'entreprises regardless of success/failure
-            self.companies_batch = []
+        self.companies_batch = []
 
         return total_committed
 
 
     def commit_stocks(self):
         """Enregistrer toutes les actions dans la base de données"""
-        if not self.stocks_batch:
-            return 0
 
         total_committed = 0
-        try:
-            # Combine all batches first
-            all_stocks = pd.concat(self.stocks_batch)
-            if all_stocks.empty:
-                 self.stocks_batch = []
-                 return 0
+        # Combine all batches first
+        all_stocks = pd.concat(self.stocks_batch)
 
-            # Vérifier que l'index est bien 'cid'
-            if all_stocks.index.name != 'cid':
-                if 'cid' in all_stocks.columns:
-                    all_stocks = all_stocks.reset_index().set_index('cid')
-                else:
-                    log_error("Cannot commit stocks: 'cid' index or column missing.")
-                    self.stocks_batch = []
-                    return 0
+        # CRUCIAL: Appeler df_write avec index=True et index_label='cid'
+        self.db.df_write(
+            all_stocks,
+            'stocks',
+            commit=True,
+            index=True,
+            index_label='cid'
+        )
+        total_committed = len(all_stocks)
 
-            # Vérifier que le DataFrame n'est pas vide après le réindexage
-            if all_stocks.empty:
-                 self.stocks_batch = []
-                 return 0
-
-            # CRUCIAL: Appeler df_write avec index=True et index_label='cid'
-            self.db.df_write(
-                all_stocks,
-                'stocks',
-                commit=True,
-                index=True,
-                index_label='cid'
-            )
-            total_committed = len(all_stocks)
-
-        except Exception as e:
-            log_error(f"Error committing stocks: {str(e)}")
-            if hasattr(self.db, 'connection') and self.db.connection:
-                 try:
-                     self.db.connection.rollback()
-                 except Exception as rb_err:
-                     log_error(f"Rollback failed: {rb_err}")
-            total_committed = 0
-        finally:
-            # Réinitialiser le lot d'actions
-            self.stocks_batch = []
-
+        self.stocks_batch = []
         return total_committed
 
 
@@ -703,41 +476,14 @@ class Processor:
             return 0
 
         total_committed = 0
-        try:
             # Combine all batches
-            all_daystocks = pd.concat(self.daystocks_batch)
-            if all_daystocks.empty:
-                 self.daystocks_batch = []
-                 return 0
-
-            # Ensure index is 'cid'
-            if all_daystocks.index.name != 'cid':
-                 if 'cid' in all_daystocks.columns:
-                     all_daystocks = all_daystocks.reset_index().set_index('cid')
-                 else:
-                     log_error("Cannot commit daystocks: 'cid' index or column missing.")
-                     self.daystocks_batch = []
-                     return 0
-
-            if all_daystocks.empty:
-                 self.daystocks_batch = []
-                 return 0
+        all_daystocks = pd.concat(self.daystocks_batch)
 
             # Écrire dans la base de données
-            self.db.df_write(all_daystocks, 'daystocks', commit=True, index=True, index_label='cid')
-            total_committed = len(all_daystocks)
+        self.db.df_write(all_daystocks, 'daystocks', commit=True, index=True, index_label='cid')
+        total_committed = len(all_daystocks)
 
-        except Exception as e:
-            log_error(f"Error committing daystocks: {str(e)}")
-            if hasattr(self.db, 'connection') and self.db.connection:
-                 try:
-                     self.db.connection.rollback()
-                 except Exception as rb_err:
-                     log_error(f"Rollback failed: {rb_err}")
-            total_committed = 0
-        finally:
-            # Réinitialiser le lot d'actions quotidiennes
-            self.daystocks_batch = []
+        self.daystocks_batch = []
 
         return total_committed
 
@@ -748,25 +494,6 @@ class Processor:
         stocks = self.commit_stocks()
         daystocks = self.commit_daystocks()
         return companies, stocks, daystocks
-
-    def update_company_info(self, symbol, new_name, old_name, isin=None):
-        """Met à jour le nom et le symbole d'une entreprise si l'ISIN est identique"""
-        # This function seems less critical for the main ETL flow and might be complex to integrate
-        # with the batch processing. Consider if it's essential or can be handled separately.
-        if isin:
-            # Vérifier si l'ISIN existe déjà avec un nom/symbole différent
-            query = "SELECT id, name, symbol FROM companies WHERE isin = %s"
-            result = self.db.df_query(query, [isin])
-
-            if not result.empty:
-                company_id = result['id'].iloc[0]
-                # Mettre à jour l'entreprise
-                update_query = "UPDATE companies SET name = %s, symbol = %s WHERE id = %s"
-                self.db.execute(update_query, [new_name, symbol, company_id])
-                log_info(f"Updated company: {old_name} → {new_name} (ID: {company_id})")
-                return True
-
-        return False
 
 #=================================================
 # SECTION 4: FONCTIONS DE TRAITEMENT DE FICHIERS
@@ -782,50 +509,30 @@ def load_euronext_file(file_path):
                             on_bad_lines='skip')
         elif file_path.endswith('.xlsx'):
             df = pd.read_excel(file_path)
-        else:
-            return None
-
-        if df is None or df.empty:
-             return None
 
         # Standardiser les noms de colonnes
         column_mapping = {
-            'Symbol': 'symbol', 'Name': 'name', 'Last': 'last', 'last Price': 'last',
-            'Volume': 'volume', 'ISIN': 'isin'
+            'Symbol': 'symbol', 
+            'Name': 'name', 
+            'Last': 'last', 
+            'last Price': 'last',
+            'Volume': 'volume', 
+            'ISIN': 'isin',
+            'Market': 'market'  # Add Market column mapping
         }
         rename_dict = {col: column_mapping[col] for col in df.columns if col in column_mapping}
         df.rename(columns=rename_dict, inplace=True)
 
-
-        if 'symbol' not in df.columns:
-            return None
-
-        # VECTORIZED NAME CLEANING
-        if 'name' in df.columns:
-            df['name'] = df['name'].astype(str)
-            try:
-                df['name'] = df['name'].str.removeprefix('SRD')
-            except AttributeError: # Handle older pandas versions
-                srd_mask = df['name'].str.startswith('SRD', na=False)
-                df.loc[srd_mask, 'name'] = df.loc[srd_mask, 'name'].str[3:]
-        # END VECTORIZED NAME CLEANING
+        df['name'] = df['name'].str.removeprefix('SRD')
 
         # Convert 'last' and 'volume' efficiently
-        if 'last' in df.columns:
-             df['last'] = pd.to_numeric(df['last'].fillna('').astype(str).str.replace(r'[^\d.,]+', '', regex=True).str.replace(',', '.', regex=False), errors='coerce')
-        if 'volume' not in df.columns:
-             df['volume'] = 0
-        elif 'volume' in df.columns:
-             df['volume'] = pd.to_numeric(df['volume'].astype(str).str.replace(r'[^\d]+', '', regex=True), errors='coerce').fillna(0)
+        df['last'] = pd.to_numeric(df['last'].fillna('').astype(str).str.replace(r'[^\d.,]+', '', regex=True).str.replace(',', '.', regex=False), errors='coerce')
 
+        df['volume'] = pd.to_numeric(df['volume'].astype(str).str.replace(r'[^\d]+', '', regex=True), errors='coerce').fillna(0)
 
-        # Filter invalid data (CORE LOGIC)
+        # Filter invalid data
         valid_mask = (df['volume'] > 0) & (df['last'] > 0)
         df = df[valid_mask]
-
-
-        if df.empty:
-            return None
 
         # Extraire la date du nom de fichier
         filename = os.path.basename(file_path)
@@ -833,59 +540,62 @@ def load_euronext_file(file_path):
         if date_match:
             file_date = date_match.group(1)
             df['date'] = pd.to_datetime(file_date)
-            df['mid'] = 6 # Default Paris
-
-            # Extract market ID
-            market_match = re.search(r'_([A-Za-z]+)_', filename)
-            if market_match:
-                market_name = market_match.group(1).lower()
-                market_map = {'amsterdam': 5, 'london': 2, 'milan': 3, 'madrid': 4, 'brussels': 8, 'xetra': 7}
-                if market_name in market_map:
-                    df['mid'] = market_map[market_name]
-                    # log_info(f"{market_name.capitalize()} market detected in {filename}") # Optional
-
+            
+            # Default market ID is Paris (6)
+            df['mid'] = 6
+            
+            # Extract market from the 'market' column if it exists
+            if 'market' in df.columns:
+                # Define market mapping
+                market_map = {
+                    'paris': 6,
+                    'amsterdam': 5,
+                    'london': 2,
+                    'milan': 3,
+                    'madrid': 4,
+                    'brussels': 8,
+                    'xetra': 7
+                }
+                
+                def extract_market_id(market_str):                    
+                    market_str = market_str.lower()
+                    for market_name, market_id in market_map.items():
+                        if market_name in market_str:
+                            return market_id
+                    return 6  
+                
+                df['mid'] = df['market'].apply(extract_market_id)
+            
             return df
-        else:
-            log_error(f"Could not extract date from Euronext filename: {filename}")
-            return None
 
     except Exception as e:
         log_error(f"Error loading Euronext file {file_path}: {str(e)}")
         return None
-# --- END MODIFICATION ---
-
-def resolve_conflicting_values(boursorama_value, euronext_value):
-    """Décide quelle valeur utiliser en cas de conflit"""
-    # This function is not currently used in the main ETL flow.
-    # If needed, ensure it handles None values correctly.
-    if boursorama_value is not None and euronext_value is not None:
-        # Example strategy: prioritize Euronext if difference is large
-        if abs(boursorama_value - euronext_value) > 0.1 * abs(euronext_value): # Use abs for comparison
-            return euronext_value
-        return (boursorama_value + euronext_value) / 2
-    return boursorama_value if boursorama_value is not None else euronext_value
 
 def extract_boursorama_day(date_str):
     """
     Extrait la partie date (YYYY-MM-DD) d'une chaîne de date Boursorama.
     """
     try:
-        # Match YYYY-MM-DD at the beginning of the relevant part
-        match = re.match(r'(\d{4}-\d{2}-\d{2})', date_str)
-        if match:
-            return match.group(1)
-        return None
+        return re.match(r'(\d{4}-\d{2}-\d{2})', date_str).group(1)
     except Exception:
         return None
 
 @timer_decorator
 def process_boursorama_files(db_model, start_date=datetime(2019, 1, 1), end_date=datetime(2024, 12, 31)):
-    """Traite les fichiers Boursorama - Version optimisée mono-thread"""
+    """Traite les fichiers Boursorama
+    
+    Additional feature : 
+       - Possibilité de choisir l'interval de date afin d'obtenir les stocks dans le temps qui nous intéresse au lieu de tout traiter.
+    
+    """
     log_info(f"Processing Boursorama files from {start_date.date()} to {end_date.date()}")
 
-    processor = Processor(db_model)
-    start_date = pd.to_datetime(start_date)
+    processor = Processor(db_model) # load processor 
+    
+    start_date = pd.to_datetime(start_date) # Gestion de date personalisé
     end_date = pd.to_datetime(end_date)
+    
     boursorama_path = os.path.join(HOME, "boursorama")
 
     years_to_process = range(max(start_date.year, 2019), min(end_date.year, 2024) + 1)
@@ -902,13 +612,12 @@ def process_boursorama_files(db_model, start_date=datetime(2019, 1, 1), end_date
 
     files_processed = 0
     companies_added_total = 0
-    stocks_added_total = 0 # Track total stocks before commit reset
+    stocks_added_total = 0 
     daystocks_added_total = 0
     prev_date = None
     date_cache = {}
-    processed_files_cache = set(processed_files) # Use global set
 
-    commit_threshold = 50000 # Keep commit threshold reasonable
+    commit_threshold = 100000 # Changé en fonction de RAM, plus il est élévé moins de commit mais plus lourd en mémoire
 
     for year in years_to_process:
         year_dir = os.path.join(boursorama_path, str(year))
@@ -916,49 +625,29 @@ def process_boursorama_files(db_model, start_date=datetime(2019, 1, 1), end_date
         year_files = []
 
         # Use os.scandir for potentially faster listing
-        try:
-            with os.scandir(year_dir) as entries:
-                for entry in entries:
-                    file_path = entry.path
-                    if file_path in processed_files_cache:
-                        continue
+        with os.scandir(year_dir) as entries:
+            for entry in entries:
+                file_path = entry.path
+                filename = entry.name
+                base_name = filename[:-4] if filename.endswith('.bz2') else filename
+                parts = base_name.split(' ', 1)
 
-                    try:
-                        filename = entry.name
-                        base_name = filename[:-4] if filename.endswith('.bz2') else filename
-                        parts = base_name.split(' ', 1)
-                        if len(parts) < 2: continue
-
-                        date_str = parts[1]
-                        day_part = extract_boursorama_day(date_str)
-                        if not day_part: continue
+                date_str = parts[1]
+                day_part = extract_boursorama_day(date_str)
 
                         # Filter by month using string manipulation (faster than datetime conversion)
-                        month_str = day_part.split('-')[1]
-                        try:
-                            month = int(month_str)
-                            if month not in month_filters.get(year, []):
-                                continue
-                        except (ValueError, IndexError):
-                            continue
+                month_str = day_part.split('-')[1]
+                month = int(month_str)
+                
+                if day_part in date_cache:
+                    timestamp = date_cache[day_part]
+                else:
+                    timestamp = pd.to_datetime(day_part)
+                    date_cache[day_part] = timestamp
 
-                        # Use date cache for full timestamp conversion
-                        if day_part in date_cache:
-                            timestamp = date_cache[day_part]
-                        else:
-                            timestamp = pd.to_datetime(day_part)
-                            date_cache[day_part] = timestamp
-
-                        # Final date range check
-                        if start_date <= timestamp <= end_date:
-                            year_files.append((timestamp, file_path, parts[0])) # (timestamp, path, market_alias)
-
-                    except Exception as parse_err:
-                        log_error(f"Error parsing filename {entry.name}: {parse_err}")
-                        continue
-        except FileNotFoundError:
-             log_error(f"Directory not found: {year_dir}")
-             continue
+                    # Final date range check
+                if start_date <= timestamp <= end_date:
+                    year_files.append((timestamp, file_path, parts[0]))
 
 
         year_files.sort() # Sort by timestamp
@@ -1005,10 +694,8 @@ def process_boursorama_files(db_model, start_date=datetime(2019, 1, 1), end_date
                     if stocks_in_current_commit_batch >= commit_threshold:
                         stocks_committed = processor.commit_stocks()
                         log_info(f">>> Progress: Committed {stocks_committed} stock records, {files_processed} files processed")
-                        stocks_in_current_commit_batch = 0 # Reset batch counter
+                        stocks_in_current_commit_batch = 0 
 
-                processed_files_cache.add(file_path)
-                processed_files.add(file_path) # Update global set
                 prev_date = current_day
 
             if last_month_logged is not None:
@@ -1016,7 +703,6 @@ def process_boursorama_files(db_model, start_date=datetime(2019, 1, 1), end_date
 
         log_info(f"Completed processing year {year} with {files_processed} files so far")
 
-    # Process final day's stocks
     if prev_date is not None:
         processor.process_daystocks(prev_date)
         day_committed = processor.commit_daystocks()
@@ -1028,9 +714,9 @@ def process_boursorama_files(db_model, start_date=datetime(2019, 1, 1), end_date
     final_companies, final_stocks, final_days = processor.commit_all()
 
     # Adjust total counts based on final commit
-    companies_added_total += final_companies # Add companies committed at the end
+    companies_added_total += final_companies 
     # stocks_added_total is already accumulated
-    daystocks_added_total += final_days # Add daystocks committed at the end
+    daystocks_added_total += final_days 
 
     log_info(f"Boursorama processing complete: {files_processed} files processed, "
              f"{companies_added_total} companies added, {stocks_added_total} stocks added, "
@@ -1044,7 +730,7 @@ def process_euronext_files(db_model, start_date=datetime(2019, 1, 1), end_date=d
     """Traite les fichiers Euronext"""
     log_info(f"Processing Euronext files from {start_date.date()} to {end_date.date()}")
 
-    processor = Processor(db_model) # Use a separate processor instance if needed, or pass the main one
+    processor = Processor(db_model)
     start_date = pd.to_datetime(start_date)
     end_date = pd.to_datetime(end_date)
     directory_path = os.path.join(HOME, "euronext")
@@ -1058,18 +744,18 @@ def process_euronext_files(db_model, start_date=datetime(2019, 1, 1), end_date=d
                     file_path = entry.path
                     date_match = re.search(r'(\d{4}-\d{2}-\d{2})', entry.name)
                     if date_match:
-                        try:
-                            file_date = datetime.strptime(date_match.group(1), '%Y-%m-%d')
-                            if start_date <= file_date <= end_date:
-                                files_to_process.append((file_date, file_path))
-                        except ValueError:
-                            log_error(f"Invalid date format in Euronext filename: {entry.name}")
+                        file_date = datetime.strptime(date_match.group(1), '%Y-%m-%d')
+                        if start_date <= file_date <= end_date:
+                            files_to_process.append((file_date, file_path))
         except FileNotFoundError:
-             log_error(f"Euronext directory not found: {directory_path}")
+             log_error(f"Euronext directory not found, check if you have respected data architecture: {directory_path}")
+             
+    if not files_to_process:
+        log_info("No Euronext files found in the specified date range.")
+        return 0, 0, 0, 0
 
-
-    files_to_process.sort() # Sort by date
-    files_to_process_paths = [f[1] for f in files_to_process] # Get only paths
+    files_to_process.sort() 
+    files_to_process_paths = [f[1] for f in files_to_process]
 
     log_info(f"Total Euronext files to process: {len(files_to_process_paths)}")
 
@@ -1083,14 +769,7 @@ def process_euronext_files(db_model, start_date=datetime(2019, 1, 1), end_date=d
     for file_path in files_to_process_paths:
         filename = os.path.basename(file_path)
         date_match = re.search(r'(\d{4}-\d{2}-\d{2})', filename)
-        file_date = None
-        if date_match:
-             try:
-                 file_date = datetime.strptime(date_match.group(1), '%Y-%m-%d')
-             except ValueError:
-                 log_error(f"Skipping Euronext file due to invalid date: {filename}")
-                 continue
-
+        file_date = datetime.strptime(date_match.group(1), '%Y-%m-%d')
 
         if file_date:
             current_day = file_date.date()
@@ -1110,7 +789,7 @@ def process_euronext_files(db_model, start_date=datetime(2019, 1, 1), end_date=d
                 files_processed += 1
 
                 # Commit periodically
-                if stocks_in_current_commit_batch >= 50000: # Use same threshold
+                if stocks_in_current_commit_batch >= 50000: 
                      stocks_committed = processor.commit_stocks()
                      log_info(f">>> Progress (Euronext): Committed {stocks_committed} stock records")
                      stocks_in_current_commit_batch = 0
@@ -1138,32 +817,23 @@ def process_euronext_files(db_model, start_date=datetime(2019, 1, 1), end_date=d
 
     return files_processed, companies_added_total, stocks_added_total, daystocks_added_total
 
-
+# Not a necessary function but just in case !!
 @timer_decorator
 def clean_database(db_model):
     """Nettoie et optimise la base de données"""
     log_info("Cleaning database...")
-    try:
-        # 1. Supprimer les valeurs invalides
-        db_model.execute("DELETE FROM stocks WHERE value <= 0 OR value IS NULL OR value > 100000")
+    # 1. Supprimer les valeurs invalides
+    db_model.execute("DELETE FROM stocks WHERE value <= 0 OR value IS NULL OR value > 100000")
 
-        # 2. Corriger les volumes négatifs (Should not happen with current logic, but good safeguard)
-        db_model.execute("UPDATE stocks SET volume = 0 WHERE volume < 0")
+    # 2. Corriger les volumes négatifs
+    db_model.execute("UPDATE stocks SET volume = 0 WHERE volume < 0")
 
-        # 3. Supprimer les actions orphelines
-        db_model.execute("DELETE FROM stocks WHERE cid NOT IN (SELECT id FROM companies)")
+    # 3. Supprimer les actions orphelines
+    db_model.execute("DELETE FROM stocks WHERE cid NOT IN (SELECT id FROM companies)")
 
-        db_model.commit()
+    db_model.commit()
 
-        log_info("Database cleanup and indexing complete")
-    except Exception as e:
-        log_error(f"Database cleaning failed: {str(e)}")
-        if hasattr(db_model, 'connection') and db_model.connection:
-            try:
-                db_model.connection.rollback()
-            except Exception as rb_err:
-                log_error(f"Rollback failed during cleanup: {rb_err}")
-
+    log_info("Database cleanup and indexing complete")
 
 #=================================================
 # SECTION 5: FONCTION PRINCIPALE
@@ -1188,21 +858,12 @@ def main():
             password='monmdp'
         )
 
-        # Réinitialiser la base de données
-        log_info("Reinitializing database...")
-        db._purge_database()
-        db._setup_database()
 
-        # Tester la connexion
-        test_result = db.df_query("SELECT 1 AS test")
-        if test_result is None or test_result.empty:
-            log_error("Database connection test failed")
-            return 1
         log_info("Database connection established")
 
         # Définir les plages de dates
         start_date = datetime(2019, 1, 1)
-        end_date = datetime(2024, 12, 31)
+        end_date = datetime(2024, 1, 31)
         log_info(f"Using date range: {start_date.date()} to {end_date.date()}")
 
         # Traiter les fichiers Boursorama

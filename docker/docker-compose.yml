@@ -38,7 +38,7 @@ services:
     networks:
       - boursenet
     volumes:
-      - /mnt/c/Users/leolo/OneDrive/Bureau/temp_big_data/data:/home/bourse/data/
+      - /mnt/c/Users/leolo/OneDrive/Bureau/temp_big_data/data:/home/bourse/data/   # Change this to your actual path
 
   dashboard:
     image: my_dashboard
