@@ -197,7 +197,6 @@ class Processor:
             df = df[valid_mask]
             
             if df.empty:
-                log_info("No valid data in file after filtering")
                 return 0, 0
 
             companies_added = self.process_dataframe(df)
