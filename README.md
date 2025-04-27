@@ -101,4 +101,10 @@ Ces optimisations réduisent considérablement le temps d'exécution et permette
 
 ---
 
+## Membres du groupes 
+- Léo Sambrook
+- Arthur Hamard
+- Arthur Guelennoc
+
+
 N'hésité pas à mettre 20/20 Merci!!! 🚀 
