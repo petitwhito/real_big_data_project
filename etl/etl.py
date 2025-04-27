@@ -351,6 +351,9 @@ class Processor:
         """
         À partir du lot d'actions traité, crée des actions quotidiennes
         """
+        if not self.day_batch:
+            return 0
+        
         daystocks = pd.concat(self.day_batch) # copy=False removed for broader compatibility
 
         aggregated_daystocks = daystocks.groupby(level='cid').agg( # Group by index 'cid'
@@ -374,6 +377,9 @@ class Processor:
 
     def clean_stocks(self):
         """Nettoyage optimisé des données de stocks"""
+
+        if not self.stocks_batch:
+            return
 
         stocks = pd.concat(self.stocks_batch) 
 
@@ -417,6 +423,9 @@ class Processor:
     def commit_companies(self):
         """Enregistrer toutes les entreprises dans la base de données"""
         total_committed = 0
+        
+        if not self.companies_batch:
+            return 0
 
         # Combine all batches first
         all_new_companies = pd.concat(self.companies_batch)
@@ -451,6 +460,9 @@ class Processor:
 
     def commit_stocks(self):
         """Enregistrer toutes les actions dans la base de données"""
+
+        if not self.stocks_batch:
+            return 0
 
         total_committed = 0
         # Combine all batches first
